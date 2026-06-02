@@ -2,39 +2,39 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
-
-// PORT is only used by the dev server — not needed during `vite build`.
-// Default to 3000 so Railway's build step (no PORT injected) doesn't throw.
-const rawPort = process.env.PORT;
-const port = rawPort && !Number.isNaN(Number(rawPort)) ? Number(rawPort) : 3000;
-
-// BASE_PATH controls Vite's `base` option.
-// Replit mounts the app at a sub-path via its shared proxy.
-// On Railway and plain production the app lives at root, so default to "/".
-const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
-  base: basePath,
+  base: "/",
+
   plugins: [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
   ],
+
   resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+      "@assets": path.resolve(__dirname, "../attached_assets"),
+    },
+    dedupe: ["react", "react-dom"],
+  },
+
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+  },
+
+  server: {
+    host: "0.0.0.0",
+    port: 3000,
+    strictPort: true,
+  },
+
+  preview: {
+    host: "0.0.0.0",
+    port: 3000,
+  },
+});  resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
