@@ -1,0 +1,38 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "XMaORQuSZohfrnc_LnQQH"
+uri = "file://artifacts/kitchen-command-mobile/assets/images/icon.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "ycSNUjIxGKiFoR64cfwYa"
+uri = "file://attached_assets/animal-silhouettes/cow.png"
+type = "image"
+title = "cow silhouette"
+
+[[generated]]
+id = "AYJI1upTVmleU7GYbeuuA"
+uri = "file://attached_assets/animal-silhouettes/pig.png"
+type = "image"
+title = "pig silhouette"
+
+[[generated]]
+id = "w1Cn7ZR_7K8bdmdy0cs3U"
+uri = "file://attached_assets/animal-silhouettes/sheep.png"
+type = "image"
+title = "sheep silhouette"
+
+[[generated]]
+id = "yKm_n8Yv7aO0TX-6VSJda"
+uri = "file://attached_assets/animal-silhouettes/chicken.png"
+type = "image"
+title = "chicken silhouette"
+
+[[generated]]
+id = "4oHQpct06qsPap8neitCi"
+uri = "file://attached_assets/animal-silhouettes/fish.png"
+type = "image"
+title = "fish silhouette"

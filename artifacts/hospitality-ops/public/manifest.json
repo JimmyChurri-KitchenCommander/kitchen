@@ -1,0 +1,30 @@
+{
+  "name": "Kitchen Command HQ",
+  "short_name": "Kitchen Command HQ",
+  "description": "Your kitchen's digital brain. Inventory, prep, recipes, suppliers and waste in one place.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1464D8",
+  "background_color": "#1464D8",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

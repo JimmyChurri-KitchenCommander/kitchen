@@ -1,0 +1,408 @@
+🔧 REPLIT PROMPT — SIDEBAR GROUPING + MOBILE UX POLISH + DEMO DATA UPDATE
+
+Redesign the mobile sidebar/navigation system to feel polished, structured, and optimised for Android smartphone use in a live kitchen environment.
+
+The current sidebar feels visually long, cluttered, and ungrouped.
+
+The new design must:
+
+reduce visual overload
+
+improve scan speed
+
+feel professional and operational
+
+support expandable grouped navigation sections
+
+work smoothly on Android mobile devices
+
+
+
+---
+
+📱 MOBILE SIDEBAR UX REQUIREMENTS
+
+CORE RULE
+
+Replace the long flat navigation list with grouped expandable navigation sections.
+
+Each section should:
+
+have a title
+
+include a small simple visual/icon representation
+
+expand/collapse smoothly
+
+display contained modules underneath using their existing icons
+
+
+Use:
+
+subtle animation
+
+smooth expansion transitions
+
+clear spacing
+
+touch-friendly sizing
+
+
+The sidebar should feel:
+
+modern
+
+responsive
+
+operational
+
+easy to scan quickly during service
+
+
+
+---
+
+📁 SIDEBAR GROUP STRUCTURE (FINAL)
+
+
+---
+
+🍽️ Kitchen Operations
+
+Small icon/visual:
+
+simple prep board or kitchen line style icon
+
+
+Contains:
+
+Prep Board
+
+Recipes
+
+Menu
+
+
+
+---
+
+📦 Stock & Ordering
+
+Small icon/visual:
+
+crate / inventory shelving style icon
+
+
+Contains:
+
+Inventory
+
+Stocktake
+
+Suppliers
+
+Orders
+
+
+IMPORTANT:
+
+Do NOT use food photos or inventory item pictures
+
+Keep visuals icon-based only
+
+
+
+---
+
+🧼 Safety & Compliance
+
+Small icon/visual:
+
+thermometer/checklist style icon
+
+
+Contains:
+
+Temperature
+
+Cleaning
+
+
+
+---
+
+📊 Insights & Control
+
+Small icon/visual:
+
+dashboard / operations icon
+
+
+Contains:
+
+Today's Dashboard
+
+Operations Hub (if enabled)
+
+Waste & Cost
+
+Data & Exports
+
+
+
+---
+
+⚙️ System
+
+Small icon/visual:
+
+gear/settings icon
+
+
+Contains:
+
+Venues
+
+Settings
+
+Sign Out
+
+
+
+---
+
+🔥 EXPAND / COLLAPSE BEHAVIOUR
+
+DEFAULT STATE
+
+groups collapsed by default on mobile
+
+active section auto-expands
+
+smooth animated transitions required
+
+
+
+---
+
+SERVICE MODE BEHAVIOUR
+
+When Service Mode is ON:
+
+Auto-prioritise and auto-expand:
+
+1. Kitchen Operations
+
+
+2. Stock & Ordering
+
+
+3. Safety & Compliance
+
+
+
+Other groups remain collapsed unless opened manually.
+
+
+---
+
+REGULAR MODE BEHAVIOUR
+
+When Service Mode is OFF:
+
+preserve user collapse state
+
+no forced expansion
+
+balanced navigation behaviour
+
+
+
+---
+
+📱 ANDROID MOBILE POLISH REQUIREMENTS
+
+The sidebar currently feels visually rough and oversized on Android smartphones.
+
+Improve:
+
+spacing consistency
+
+touch targets
+
+icon alignment
+
+text alignment
+
+scroll smoothness
+
+padding balance
+
+open/close responsiveness
+
+
+Sidebar must:
+
+slide smoothly
+
+avoid layout jumps
+
+avoid oversized empty spacing
+
+avoid cramped text/icon placement
+
+
+Use:
+
+softer dividers
+
+grouped card-style sections
+
+subtle shadows or depth
+
+consistent typography sizing
+
+
+
+---
+
+🚫 VISUAL RULES
+
+DO NOT:
+
+use stock photos
+
+use recipe images
+
+use food thumbnails in sidebar groups
+
+clutter navigation with excessive colours
+
+
+USE:
+
+simple operational iconography only
+
+clean hospitality-focused UI styling
+
+
+
+---
+
+🧪 DEMO KITCHEN UPDATE REQUIREMENTS
+
+Update the Demo Kitchen environment to better showcase the system capabilities.
+
+Populate with realistic operational demo data including:
+
+
+---
+
+📦 Inventory
+
+Add:
+
+low stock items
+
+supplier-linked items
+
+zero stock items awaiting order
+
+unlinked inventory examples
+
+active stock movement examples
+
+
+
+---
+
+📖 Recipes
+
+Add:
+
+linked recipes with ingredients
+
+imported recipe examples
+
+prep-linked recipes
+
+recipes with missing inventory ingredients
+
+
+DO NOT use recipe photos/images.
+
+
+---
+
+🍽️ Prep Board
+
+Add:
+
+active prep tasks
+
+overdue prep examples
+
+Today / Tomorrow movement examples
+
+completed prep history examples
+
+
+
+---
+
+🌡️ Temperature Logs
+
+Add:
+
+compliant logs
+
+missing log alerts
+
+recent temperature entries
+
+
+
+---
+
+🗑️ Waste & Cost
+
+Add:
+
+waste entries
+
+cost-impact examples
+
+service waste logging examples
+
+
+
+---
+
+🧠 DESIGN GOAL
+
+The app should feel like:
+
+> a polished kitchen operations command system
+
+
+
+NOT:
+
+a generic admin dashboard
+
+consumer recipe app
+
+inventory spreadsheet
+
+
+The interface must feel:
+
+operational
+
+fast
+
+structured
+
+clean under pressure
+
+mobile-first for chefs during service

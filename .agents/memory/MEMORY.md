@@ -1,0 +1,4 @@
+- [Service mode API pattern](service-mode-api.md) — service mode routes are NOT in OpenAPI spec; use fetch directly for /api/venues/:id/service/* in the frontend.
+- [Allergens field typing](allergens-typing.md) — allergens is jsonb on the DB, returned as string[], but not yet in the generated TS types; use `(recipe as any).allergens` in the frontend.
+- [Generated enum comparisons](generated-enum-casts.md) — generated Zod enum types (e.g. PrepTaskPriority) require `as string` cast or `String(x)` for equality comparisons in TSX.
+- [Animal fabrication rendering](animal-silhouettes-dont.md) — SVG clipPath on bodyPath from animal-diagrams.ts is the correct approach; PNG+CSS mask and separate polygon file caused all primal misalignment bugs.

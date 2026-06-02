@@ -1,0 +1,11 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="240" fill="#1464D8"/>
+  <!-- Chef's toque: large round dome (puff) -->
+  <ellipse cx="120" cy="96" rx="72" ry="68" fill="white"/>
+  <!-- Clip the bottom of the ellipse using a blue rect -->
+  <rect x="46" y="148" width="148" height="32" fill="#1464D8"/>
+  <!-- Hat band -->
+  <rect x="58" y="148" width="124" height="26" rx="5" fill="white"/>
+  <!-- Hat brim -->
+  <rect x="66" y="172" width="108" height="14" rx="4" fill="white"/>
+</svg>
