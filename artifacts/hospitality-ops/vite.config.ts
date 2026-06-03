@@ -21,10 +21,8 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
   },
 
-  root: path.resolve(__dirname),
-
   build: {
-    outDir: path.resolve(__dirname, "dist"),
+    outDir: "dist",
     emptyOutDir: true,
   },
 
@@ -33,9 +31,6 @@ export default defineConfig({
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
-    fs: {
-      strict: true,
-    },
   },
 
   preview: {
