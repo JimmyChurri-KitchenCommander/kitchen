@@ -3,7 +3,6 @@
   "framework": "vite",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/hospitality-ops run build",
-  "outputDirectory": "artifacts/hospitality-ops/dist",
   "rewrites": [
     {
       "source": "/(.*)",
