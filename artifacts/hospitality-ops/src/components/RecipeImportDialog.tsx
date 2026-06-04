@@ -653,7 +653,7 @@ export default function RecipeImportDialog({ open, onOpenChange }: Props) {
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                     <p className="text-sm font-semibold text-foreground">Drop a photo or tap to browse</p>
                     <p className="text-xs text-muted-foreground mt-1">Recipe cards, printouts, whiteboards</p>
-                    <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }} />
                   </div>
                 )}
