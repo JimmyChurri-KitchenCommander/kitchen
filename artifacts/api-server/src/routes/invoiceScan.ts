@@ -388,14 +388,25 @@ router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (
     const invoiceId = parseInt(req.params["invoiceId"] as string);
 
     if (!(await assertVenueAccess(venueId, req.userId!))) {
-      res.status(404).json({ error: "Venue not found" }); return;
+      res.status(404).json({ error: "Venue not found" });
+      return;
     }
 
-    const [invoice] = await db.select().from(invoicesTable)
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.venueId, venueId)));
-    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+    const [invoice] = await db
+      .select()
+      .from(invoicesTable)
+      .where(
+        and(
+          eq(invoicesTable.id, invoiceId),
+          eq(invoicesTable.venueId, venueId)
+        )
+      );
 
-    // Body: { receivedBy: string, items: [{ id, receivedStatus, receivedQuantity, receivingNotes }] }
+    if (!invoice) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+
     const { receivedBy, items } = req.body as {
       receivedBy: string;
       items: Array<{
@@ -410,47 +421,80 @@ router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (
     let restockedCount = 0;
 
     const supplier = invoice.supplierId
-      ? (await db.select().from(suppliersTable).where(eq(suppliersTable.id, invoice.supplierId)))[0]
+      ? (
+          await db
+            .select()
+            .from(suppliersTable)
+            .where(eq(suppliersTable.id, invoice.supplierId))
+        )[0]
       : null;
 
     for (const item of items) {
-      // Update the line item receiving status
-      await db.update(invoiceItemsTable).set({
-        receivedStatus: item.receivedStatus,
-        receivedQuantity: String(item.receivedQuantity),
-        receivingNotes: item.receivingNotes ?? null,
-        receivedAt: now,
-        receivedBy,
-      }).where(eq(invoiceItemsTable.id, item.id));
-
-      // Only restock if received (fully or short)
-      if (item.receivedStatus === "rejected" || item.receivedQuantity <= 0) continue;
-
-      const [lineItem] = await db.select().from(invoiceItemsTable)
+      // Load line item first
+      const [lineItem] = await db
+        .select()
+        .from(invoiceItemsTable)
         .where(eq(invoiceItemsTable.id, item.id));
-      if (!lineItem?.inventoryItemId) continue;
 
-      const [existing] = await db.select().from(inventoryItemsTable)
+      if (!lineItem) continue;
+
+      const orderedQty = parseFloat(lineItem.quantity);
+      const varianceQty = orderedQty - item.receivedQuantity;
+
+      // Update receiving information
+      await db
+        .update(invoiceItemsTable)
+        .set({
+          receivedStatus: item.receivedStatus,
+          receivedQuantity: String(item.receivedQuantity),
+          varianceQuantity: String(varianceQty.toFixed(3)),
+          receivingNotes: item.receivingNotes ?? null,
+          receivedAt: now,
+          receivedBy,
+        })
+        .where(eq(invoiceItemsTable.id, item.id));
+
+      // Skip inventory updates if rejected
+      if (
+        item.receivedStatus === "rejected" ||
+        item.receivedQuantity <= 0
+      ) {
+        continue;
+      }
+
+      if (!lineItem.inventoryItemId) continue;
+
+      const [existing] = await db
+        .select()
+        .from(inventoryItemsTable)
         .where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
+
       if (!existing) continue;
 
-      // Add received quantity to current stock
-      const newStock = parseFloat(existing.currentStock ?? "0") + item.receivedQuantity;
+      // Increase stock by received quantity
+      const currentStock = parseFloat(existing.currentStock ?? "0");
+      const newStock = currentStock + item.receivedQuantity;
 
-      // Update cost if price changed
       const newCost = parseFloat(lineItem.unitPrice);
       const oldCost = parseFloat(existing.averageCost ?? "0");
 
-      await db.update(inventoryItemsTable).set({
-        currentStock: newStock.toFixed(4),
-        averageCost: lineItem.unitPrice,
-        lastRestocked: now,
-        updatedAt: now,
-      }).where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
+      await db
+        .update(inventoryItemsTable)
+        .set({
+          currentStock: newStock.toFixed(4),
+          averageCost: lineItem.unitPrice,
+          lastRestocked: now,
+          updatedAt: now,
+        })
+        .where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
 
-      // Log price change if different
+      // Log supplier price change
       if (supplier && Math.abs(newCost - oldCost) > 0.0001) {
-        const changePercent = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : 0;
+        const changePercent =
+          oldCost > 0
+            ? ((newCost - oldCost) / oldCost) * 100
+            : 0;
+
         await db.insert(priceHistoryTable).values({
           supplierId: supplier.id,
           inventoryItemId: lineItem.inventoryItemId,
@@ -464,20 +508,34 @@ router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (
       restockedCount++;
     }
 
-    // Mark invoice as received
-    await db.update(invoicesTable).set({
-      status: "processed",
-      receivedAt: now,
-      receivedBy,
-      updatedAt: now,
-    }).where(eq(invoicesTable.id, invoiceId));
+    // Mark invoice received
+    await db
+      .update(invoicesTable)
+      .set({
+        status: "processed",
+        receivedAt: now,
+        receivedBy,
+        receivingCompleted: true,
+        updatedAt: now,
+      })
+      .where(eq(invoicesTable.id, invoiceId));
 
-    res.json({ restockedCount, receivedAt: now });
+    res.json({
+      success: true,
+      invoiceId,
+      restockedCount,
+      receivedAt: now,
+    });
   } catch (err) {
     req.log.error({ err }, "Failed to process goods receiving");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({
+      error: "Internal server error",
+    });
   }
 });
+
+
+
 
 // END OF FILE
 export default router;
