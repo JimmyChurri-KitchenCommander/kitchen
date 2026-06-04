@@ -8,6 +8,8 @@ import {
   priceHistoryTable,
   suppliersTable,
 } from "@workspace/db";
+
+import { priceHistoryTable } from "@workspace/db/schema/priceHistory";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
@@ -379,4 +381,103 @@ router.post("/venues/:venueId/invoices/:invoiceId/apply", requireAuth, async (re
   }
 });
 
+// ── GOODS RECEIVING ───────────────────────────────────────────────────────────
+router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const venueId = parseInt(req.params["venueId"] as string);
+    const invoiceId = parseInt(req.params["invoiceId"] as string);
+
+    if (!(await assertVenueAccess(venueId, req.userId!))) {
+      res.status(404).json({ error: "Venue not found" }); return;
+    }
+
+    const [invoice] = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.venueId, venueId)));
+    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+
+    // Body: { receivedBy: string, items: [{ id, receivedStatus, receivedQuantity, receivingNotes }] }
+    const { receivedBy, items } = req.body as {
+      receivedBy: string;
+      items: Array<{
+        id: number;
+        receivedStatus: "received" | "short" | "rejected";
+        receivedQuantity: number;
+        receivingNotes?: string;
+      }>;
+    };
+
+    const now = new Date();
+    let restockedCount = 0;
+
+    const supplier = invoice.supplierId
+      ? (await db.select().from(suppliersTable).where(eq(suppliersTable.id, invoice.supplierId)))[0]
+      : null;
+
+    for (const item of items) {
+      // Update the line item receiving status
+      await db.update(invoiceItemsTable).set({
+        receivedStatus: item.receivedStatus,
+        receivedQuantity: String(item.receivedQuantity),
+        receivingNotes: item.receivingNotes ?? null,
+        receivedAt: now,
+        receivedBy,
+      }).where(eq(invoiceItemsTable.id, item.id));
+
+      // Only restock if received (fully or short)
+      if (item.receivedStatus === "rejected" || item.receivedQuantity <= 0) continue;
+
+      const [lineItem] = await db.select().from(invoiceItemsTable)
+        .where(eq(invoiceItemsTable.id, item.id));
+      if (!lineItem?.inventoryItemId) continue;
+
+      const [existing] = await db.select().from(inventoryItemsTable)
+        .where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
+      if (!existing) continue;
+
+      // Add received quantity to current stock
+      const newStock = parseFloat(existing.currentStock ?? "0") + item.receivedQuantity;
+
+      // Update cost if price changed
+      const newCost = parseFloat(lineItem.unitPrice);
+      const oldCost = parseFloat(existing.averageCost ?? "0");
+
+      await db.update(inventoryItemsTable).set({
+        currentStock: newStock.toFixed(4),
+        averageCost: lineItem.unitPrice,
+        lastRestocked: now,
+        updatedAt: now,
+      }).where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
+
+      // Log price change if different
+      if (supplier && Math.abs(newCost - oldCost) > 0.0001) {
+        const changePercent = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : 0;
+        await db.insert(priceHistoryTable).values({
+          supplierId: supplier.id,
+          inventoryItemId: lineItem.inventoryItemId,
+          itemName: lineItem.description,
+          oldPrice: String(oldCost),
+          newPrice: String(newCost),
+          changePercent: String(changePercent.toFixed(2)),
+        });
+      }
+
+      restockedCount++;
+    }
+
+    // Mark invoice as received
+    await db.update(invoicesTable).set({
+      status: "processed",
+      receivedAt: now,
+      receivedBy,
+      updatedAt: now,
+    }).where(eq(invoicesTable.id, invoiceId));
+
+    res.json({ restockedCount, receivedAt: now });
+  } catch (err) {
+    req.log.error({ err }, "Failed to process goods receiving");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// END OF FILE
 export default router;
