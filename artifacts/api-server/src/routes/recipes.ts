@@ -676,7 +676,7 @@ ${inventoryList || "(no inventory items yet)"}`;
     if (source === "image" && imageBase64) {
       const imgMime = (mimeType || "image/jpeg") as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
       const response = await openai.chat.completions.create({
-        model: "gpt-5.1",
+        model: "gpt-4o",
         max_completion_tokens: 4096,
         messages: [
           { role: "system", content: systemPrompt },
@@ -716,7 +716,7 @@ ${inventoryList || "(no inventory items yet)"}`;
       }
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5.1",
+        model: "gpt-4o",
         max_completion_tokens: 4096,
         messages: [
           { role: "system", content: systemPrompt },
