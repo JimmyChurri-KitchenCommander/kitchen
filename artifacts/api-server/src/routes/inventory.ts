@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { inventoryItemsTable, venuesTable, priceHistoryTable, recipesTable } from "@workspace/db";
-import { eq, and, isNull } from "drizzle-orm";
+import { inventoryItemsTable, venuesTable, priceHistoryTable, recipesTable, inventoryLedgerEntriesTable } from "@workspace/db";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess, assertVenueAdmin } from "../middlewares/venueAuth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { reconcileInventoryStock } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -18,6 +19,12 @@ function computeStagnantDays(lastRestocked: Date | null): number {
 // only an explicit expiresAt date will trigger that for them.
 const HIGH_RISK_SPOILAGE_CATEGORIES = new Set(["Meat", "Seafood", "Dairy"]);
 const HIGH_RISK_IDLE_DAYS = 5;
+const STOCK_TYPES = new Set(["raw", "prep", "finished"]);
+
+function normaliseStockType(value: unknown, productionRecipeId?: number | null): string {
+  if (typeof value === "string" && STOCK_TYPES.has(value)) return value;
+  return productionRecipeId ? "prep" : "raw";
+}
 
 function computeStatus(
   currentStock: string,
@@ -75,6 +82,7 @@ function enrichItem(
     productionRecipeId: item.productionRecipeId ?? null,
     productionRecipeName: item.productionRecipeId ? (recipeNameMap.get(item.productionRecipeId) ?? null) : null,
     isInHousePrepped,
+    stockType: item.stockType,
     storageLocation: item.storageLocation ?? null,
     category: item.category ?? null,
     isActive: item.isActive,
@@ -130,26 +138,50 @@ router.post("/venues/:venueId/inventory", requireAuth, async (req, res): Promise
     if (!(await assertVenueAdmin(venueId, req.userId!))) {
       res.status(403).json({ error: "Admin access required" }); return;
     }
-    const { name, unit, currentStock, averageCost, parLevel, supplierId, shelfLifeDays, expiresAt, storageLocation, category } = req.body as Record<string, unknown>;
+    const { name, unit, currentStock, averageCost, parLevel, supplierId, shelfLifeDays, expiresAt, productionRecipeId, stockType, storageLocation, category } = req.body as Record<string, unknown>;
     if (!name || !unit) { res.status(400).json({ error: "name and unit are required" }); return; }
+    const initialStock = Number(currentStock ?? 0);
+    const unitCost = Number(averageCost ?? 0);
+    const linkedProductionRecipeId = productionRecipeId ? Number(productionRecipeId) : null;
     const [raw] = await db
       .insert(inventoryItemsTable)
       .values({
         venueId,
         name: name as string,
         unit: unit as string,
-        currentStock: String(currentStock ?? 0),
-        averageCost: String(averageCost ?? 0),
+        currentStock: "0",
+        averageCost: String(unitCost),
         parLevel: String(parLevel ?? 0),
         supplierId: supplierId ? Number(supplierId) : null,
         shelfLifeDays: shelfLifeDays ? Number(shelfLifeDays) : null,
         expiresAt: expiresAt ? new Date(expiresAt as string) : null,
+        productionRecipeId: linkedProductionRecipeId,
+        stockType: normaliseStockType(stockType, linkedProductionRecipeId),
         storageLocation: storageLocation ? String(storageLocation) : null,
         category: category ? String(category) : null,
         lastRestocked: new Date(),
         createdBy: req.userId!,
       })
       .returning();
+    if (!raw) { res.status(500).json({ error: "Internal server error" }); return; }
+
+    if (initialStock > 0) {
+      const movement = await reconcileInventoryStock({
+        venueId,
+        inventoryItemId: raw.id,
+        actualStock: initialStock,
+        unitCost,
+        reason: "Initial inventory count",
+        referenceType: "inventory_item",
+        referenceId: raw.id,
+        createdBy: req.userId!,
+        expiresAt: expiresAt ? new Date(expiresAt as string) : null,
+        metadata: { source: "inventory_create" },
+      });
+      res.status(201).json(enrichItem(movement.item));
+      return;
+    }
+
     res.status(201).json(enrichItem(raw));
   } catch (err) {
     req.log.error({ err }, "Failed to create inventory item");
@@ -273,15 +305,16 @@ router.patch("/venues/:venueId/inventory/:itemId", requireAuth, async (req, res)
       res.status(404).json({ error: "Venue not found" }); return;
     }
     const updates: Record<string, unknown> = {};
-    const { name, unit, currentStock, averageCost, parLevel, supplierId, shelfLifeDays, expiresAt, storageLocation, category } = req.body as Record<string, unknown>;
+    const { name, unit, currentStock, averageCost, parLevel, supplierId, shelfLifeDays, expiresAt, productionRecipeId, stockType, storageLocation, category } = req.body as Record<string, unknown>;
     if (name !== undefined) updates["name"] = name;
     if (unit !== undefined) updates["unit"] = unit;
-    if (currentStock !== undefined) { updates["currentStock"] = String(currentStock); updates["lastRestocked"] = new Date(); }
     if (averageCost !== undefined) updates["averageCost"] = String(averageCost);
     if (parLevel !== undefined) updates["parLevel"] = String(parLevel);
     if (supplierId !== undefined) updates["supplierId"] = supplierId ? Number(supplierId) : null;
     if (shelfLifeDays !== undefined) updates["shelfLifeDays"] = shelfLifeDays ? Number(shelfLifeDays) : null;
     if (expiresAt !== undefined) updates["expiresAt"] = expiresAt ? new Date(expiresAt as string) : null;
+    if (productionRecipeId !== undefined) updates["productionRecipeId"] = productionRecipeId ? Number(productionRecipeId) : null;
+    if (stockType !== undefined) updates["stockType"] = normaliseStockType(stockType, productionRecipeId !== undefined ? (productionRecipeId ? Number(productionRecipeId) : null) : undefined);
     if (storageLocation !== undefined) updates["storageLocation"] = storageLocation ? String(storageLocation) : null;
     if (category !== undefined) updates["category"] = category ? String(category) : null;
     updates["updatedAt"] = new Date();
@@ -291,6 +324,22 @@ router.patch("/venues/:venueId/inventory/:itemId", requireAuth, async (req, res)
       .where(and(eq(inventoryItemsTable.id, itemId), eq(inventoryItemsTable.venueId, venueId)))
       .returning();
     if (!raw) { res.status(404).json({ error: "Item not found" }); return; }
+    if (currentStock !== undefined) {
+      const movement = await reconcileInventoryStock({
+        venueId,
+        inventoryItemId: itemId,
+        actualStock: Number(currentStock),
+        unitCost: averageCost !== undefined ? Number(averageCost) : parseFloat(raw.averageCost),
+        reason: "Manual stock correction",
+        referenceType: "inventory_item",
+        referenceId: itemId,
+        createdBy: req.userId!,
+        expiresAt: raw.expiresAt ?? null,
+        metadata: { source: "inventory_update" },
+      });
+      res.json(enrichItem(movement.item));
+      return;
+    }
     res.json(enrichItem(raw));
   } catch (err) {
     req.log.error({ err }, "Failed to update inventory item");
@@ -443,6 +492,50 @@ router.get("/venues/:venueId/inventory/:itemId/price-history", requireAuth, asyn
     );
   } catch (err) {
     req.log.error({ err }, "Failed to get price history");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/venues/:venueId/inventory/:itemId/ledger", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const venueId = parseInt(req.params["venueId"] as string);
+    const itemId = parseInt(req.params["itemId"] as string);
+    if (!(await assertVenueAccess(venueId, req.userId!))) {
+      res.status(404).json({ error: "Venue not found" }); return;
+    }
+    const [item] = await db
+      .select()
+      .from(inventoryItemsTable)
+      .where(and(eq(inventoryItemsTable.id, itemId), eq(inventoryItemsTable.venueId, venueId)));
+    if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+
+    const entries = await db
+      .select()
+      .from(inventoryLedgerEntriesTable)
+      .where(and(
+        eq(inventoryLedgerEntriesTable.venueId, venueId),
+        eq(inventoryLedgerEntriesTable.inventoryItemId, itemId),
+      ))
+      .orderBy(desc(inventoryLedgerEntriesTable.createdAt), desc(inventoryLedgerEntriesTable.id));
+
+    res.json(entries.map((entry) => ({
+      id: entry.id,
+      venueId: entry.venueId,
+      inventoryItemId: entry.inventoryItemId,
+      layerId: entry.layerId ?? null,
+      transactionType: entry.transactionType,
+      quantityDelta: parseFloat(entry.quantityDelta),
+      resultingStock: parseFloat(entry.resultingStock),
+      unitCost: parseFloat(entry.unitCost),
+      costImpact: parseFloat(entry.costImpact),
+      reason: entry.reason,
+      referenceType: entry.referenceType ?? null,
+      referenceId: entry.referenceId ?? null,
+      createdBy: entry.createdBy ?? null,
+      createdAt: entry.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to get inventory ledger");
     res.status(500).json({ error: "Internal server error" });
   }
 });

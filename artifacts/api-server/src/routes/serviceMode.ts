@@ -12,6 +12,7 @@ import {
   wasteLogsTable,
 } from "@workspace/db";
 import { eq, and, ne } from "drizzle-orm";
+import { applyInventoryMovement } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -172,23 +173,16 @@ router.post("/venues/:venueId/service/waste-log", async (req, res): Promise<void
 
     let costImpact = "0.00";
     let parCheck: { belowPar: boolean; projectedStock: string; parLevel: string; itemName: string } | null = null;
+    let inventoryItem: typeof inventoryItemsTable.$inferSelect | null = null;
+    const qty = parseFloat(quantity);
 
     if (inventoryItemId) {
       const [item] = await db.select().from(inventoryItemsTable)
         .where(and(eq(inventoryItemsTable.id, inventoryItemId), eq(inventoryItemsTable.venueId, venueId)));
       if (item) {
-        const qty = parseFloat(quantity);
+        inventoryItem = item;
         const avgCost = parseFloat(item.averageCost ?? "0");
         costImpact = (qty * avgCost).toFixed(2);
-        if (item.parLevel) {
-          const projected = parseFloat(item.currentStock ?? "0") - qty;
-          parCheck = {
-            belowPar: projected < parseFloat(item.parLevel),
-            projectedStock: projected.toFixed(2),
-            parLevel: item.parLevel,
-            itemName: item.name,
-          };
-        }
       }
     }
 
@@ -206,6 +200,31 @@ router.post("/venues/:venueId/service/waste-log", async (req, res): Promise<void
       isQuick: true,
       loggedAt: new Date(),
     }).returning();
+
+    if (inventoryItem && wasteLog) {
+      const movement = await applyInventoryMovement({
+        venueId,
+        inventoryItemId: inventoryItem.id,
+        transactionType: "WASTE",
+        quantityDelta: -qty,
+        unitCost: parseFloat(inventoryItem.averageCost ?? "0"),
+        reason,
+        referenceType: "waste_log",
+        referenceId: wasteLog.id,
+        createdBy: loggedBy,
+        metadata: { source: "service_mode", itemName, notes: noteText ?? null },
+      });
+
+      if (inventoryItem.parLevel) {
+        const projected = parseFloat(movement.item.currentStock ?? "0");
+        parCheck = {
+          belowPar: projected < parseFloat(inventoryItem.parLevel),
+          projectedStock: projected.toFixed(2),
+          parLevel: inventoryItem.parLevel,
+          itemName: inventoryItem.name,
+        };
+      }
+    }
 
     res.status(201).json({ wasteLog, parCheck });
   } catch (err) {

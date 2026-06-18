@@ -4,6 +4,7 @@ import { wasteLogsTable, inventoryItemsTable, prepTaskLibraryTable } from "@work
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
+import { applyInventoryMovement } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -60,14 +61,28 @@ router.post("/venues/:venueId/waste", requireAuth, async (req, res): Promise<voi
     if (inventoryItemId) {
       const invId = Number(inventoryItemId);
       const [item] = await db.select({
+        id: inventoryItemsTable.id,
         name: inventoryItemsTable.name,
         currentStock: inventoryItemsTable.currentStock,
+        averageCost: inventoryItemsTable.averageCost,
         parLevel: inventoryItemsTable.parLevel,
       }).from(inventoryItemsTable)
         .where(and(eq(inventoryItemsTable.id, invId), eq(inventoryItemsTable.venueId, venueId)));
 
       if (item) {
-        const projectedStock = parseFloat(item.currentStock) - Number(quantity);
+        const movement = await applyInventoryMovement({
+          venueId,
+          inventoryItemId: item.id,
+          transactionType: "WASTE",
+          quantityDelta: -Number(quantity),
+          unitCost: parseFloat(item.averageCost),
+          reason: reason as string,
+          referenceType: "waste_log",
+          referenceId: log!.id,
+          createdBy: req.userId!,
+          metadata: { itemName, notes: notes ?? null },
+        });
+        const projectedStock = parseFloat(movement.item.currentStock);
         const parLevelVal = parseFloat(item.parLevel);
         if (projectedStock < parLevelVal) {
           const [libraryTask] = await db.select({

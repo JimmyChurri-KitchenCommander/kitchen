@@ -4,7 +4,9 @@ import {
   useGetInventoryItemPriceHistory,
   getGetInventoryItemQueryKey,
   getGetInventoryItemPriceHistoryQueryKey,
+  customFetch,
 } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import {
   ArrowLeft, Edit2, Package, AlertTriangle, DollarSign,
@@ -52,6 +54,44 @@ function getStatusBarColor(status: string) {
   }
 }
 
+function getStockTypeLabel(stockType: string) {
+  switch (stockType) {
+    case "prep": return "Prep stock";
+    case "finished": return "Finished stock";
+    case "raw":
+    default: return "Raw stock";
+  }
+}
+
+function getTransactionLabel(type: string) {
+  switch (type) {
+    case "PURCHASE": return "Delivery received";
+    case "PRODUCTION_INPUT": return "Used in prep";
+    case "PRODUCTION_OUTPUT": return "Prep produced";
+    case "SALE": return "Sold through service";
+    case "WASTE": return "Waste logged";
+    case "STOCKTAKE": return "Stocktake correction";
+    default: return type;
+  }
+}
+
+type InventoryLedgerEntry = {
+  id: number;
+  venueId: number;
+  inventoryItemId: number;
+  layerId: number | null;
+  transactionType: "PURCHASE" | "PRODUCTION_INPUT" | "PRODUCTION_OUTPUT" | "SALE" | "WASTE" | "STOCKTAKE";
+  quantityDelta: number;
+  resultingStock: number;
+  unitCost: number;
+  costImpact: number;
+  reason: string;
+  referenceType: string | null;
+  referenceId: number | null;
+  createdBy: string | null;
+  createdAt: string;
+};
+
 export default function InventoryDetailPage() {
   const { activeVenueId } = useVenueStore();
   const params = useParams();
@@ -68,6 +108,15 @@ export default function InventoryDetailPage() {
     itemId,
     { query: { enabled: !!activeVenueId && !!itemId, queryKey: getGetInventoryItemPriceHistoryQueryKey(activeVenueId as number, itemId) } }
   );
+
+  const { data: ledgerEntries = [] } = useQuery({
+    enabled: !!activeVenueId && !!itemId,
+    queryKey: ["/api/venues", activeVenueId, "inventory", itemId, "ledger"],
+    queryFn: () => customFetch<InventoryLedgerEntry[]>(
+      `/venues/${activeVenueId}/inventory/${itemId}/ledger`,
+      { responseType: "json" },
+    ),
+  });
 
   if (!activeVenueId) return null;
 
@@ -104,6 +153,7 @@ export default function InventoryDetailPage() {
   const priceVariance = lastEntry && prevEntry && prevEntry.newPrice > 0
     ? ((lastEntry.newPrice - prevEntry.newPrice) / prevEntry.newPrice) * 100
     : null;
+  const stockType = (item as { stockType?: string }).stockType ?? (item.isInHousePrepped ? "prep" : "raw");
 
   return (
     <div className="space-y-6 pb-20 max-w-3xl">
@@ -119,6 +169,7 @@ export default function InventoryDetailPage() {
               <Badge variant="outline" className={cn("bg-transparent", getStatusColor(item.status))}>
                 {getStatusLabel(item.status)}
               </Badge>
+              <Badge variant="secondary">{getStockTypeLabel(stockType)}</Badge>
             </div>
             {item.supplierName && (
               <p className="text-muted-foreground mt-1">{item.supplierName}</p>
@@ -181,6 +232,22 @@ export default function InventoryDetailPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-4 px-5">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Kitchen Layer</CardTitle>
+          </CardHeader>
+          <CardContent className="px-5 pb-4">
+            <p className="font-semibold text-foreground">{getStockTypeLabel(stockType)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stockType === "raw"
+                ? "Purchased ingredient stock"
+                : stockType === "prep"
+                ? "Made in-house from other stock"
+                : "Ready for sale or portioning"}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-4 px-5">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Supplier</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-4">
@@ -211,6 +278,55 @@ export default function InventoryDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="bg-card border-border">
+        <CardHeader className="border-b border-border pb-3">
+          <CardTitle className="text-base font-bold text-foreground flex items-center gap-2">
+            <Package className="w-4 h-4 text-primary" />
+            Stock Movement Ledger
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {ledgerEntries.length > 0 ? (
+            <div className="divide-y divide-border/60">
+              {ledgerEntries.slice(0, 12).map(entry => {
+                const isPositive = entry.quantityDelta > 0;
+                return (
+                  <div key={entry.id} className="flex items-start justify-between gap-4 p-4">
+                    <div>
+                      <p className="font-semibold text-foreground">{getTransactionLabel(entry.transactionType)}</p>
+                      <p className="text-sm text-muted-foreground">{entry.reason}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(entry.createdAt).toLocaleString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={cn("font-bold", isPositive ? "text-status-healthy" : "text-status-critical")}>
+                        {isPositive ? "+" : ""}{entry.quantityDelta.toFixed(2)} {item.unit}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Balance {entry.resultingStock.toFixed(2)} {item.unit}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ${Math.abs(entry.costImpact).toFixed(2)} impact
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-5 text-sm text-muted-foreground">
+              No stock movements recorded yet. New deliveries, stocktakes, prep logs, and waste will appear here.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Price history */}
       {sortedHistory.length > 0 ? (

@@ -55,6 +55,12 @@ const CATEGORIES = [
   "Herbs & Spices", "Oils & Condiments", "Beverages", "Bakery & Pastry", "Frozen", "Other",
 ];
 
+const STOCK_TYPES = [
+  { value: "raw", label: "Raw stock", description: "Purchased ingredients like beef, tomatoes, flour" },
+  { value: "prep", label: "Prep stock", description: "In-house mise en place like sauces, marinades, pickles" },
+  { value: "finished", label: "Finished stock", description: "Ready-to-sell or portioned items" },
+] as const;
+
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   unit: z.string().min(1, "Unit is required (e.g. kg, L, unit)"),
@@ -65,6 +71,7 @@ const formSchema = z.object({
   shelfLifeDays: z.coerce.number().optional().nullable(),
   expiresAt: z.string().optional().nullable(),
   productionRecipeId: z.coerce.number().optional().nullable(),
+  stockType: z.enum(["raw", "prep", "finished"]),
   storageLocation: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
 });
@@ -118,6 +125,7 @@ export default function InventoryFormPage() {
       currentStock: 0,
       averageCost: 0,
       parLevel: 0,
+      stockType: "raw",
     },
   });
 
@@ -133,6 +141,7 @@ export default function InventoryFormPage() {
         shelfLifeDays: item.shelfLifeDays,
         expiresAt: item.expiresAt ? new Date(item.expiresAt).toISOString().split("T")[0] : null,
         productionRecipeId: item.productionRecipeId ?? null,
+        stockType: ((item as { stockType?: "raw" | "prep" | "finished" }).stockType ?? (item.isInHousePrepped ? "prep" : "raw")),
         storageLocation: item.storageLocation ?? null,
         category: (item as any).category ?? null,
       });
@@ -360,6 +369,31 @@ export default function InventoryFormPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stockType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-foreground">Kitchen Stock Layer</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="bg-background border-border">
+                            <SelectValue placeholder="Select stock layer..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {STOCK_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {STOCK_TYPES.find(type => type.value === field.value)?.description}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
