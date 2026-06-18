@@ -14,6 +14,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { applyInventoryMovement } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -471,22 +472,28 @@ router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (
 
       if (!existing) continue;
 
-      // Increase stock by received quantity
-      const currentStock = parseFloat(existing.currentStock ?? "0");
-      const newStock = currentStock + item.receivedQuantity;
-
       const newCost = parseFloat(lineItem.unitPrice);
       const oldCost = parseFloat(existing.averageCost ?? "0");
 
-      await db
-        .update(inventoryItemsTable)
-        .set({
-          currentStock: newStock.toFixed(4),
-          averageCost: lineItem.unitPrice,
-          lastRestocked: now,
-          updatedAt: now,
-        })
-        .where(eq(inventoryItemsTable.id, lineItem.inventoryItemId));
+      await applyInventoryMovement({
+        venueId,
+        inventoryItemId: lineItem.inventoryItemId,
+        transactionType: "PURCHASE",
+        quantityDelta: item.receivedQuantity,
+        unitCost: newCost,
+        reason: `Received delivery from ${supplier?.name ?? invoice.supplierName}`,
+        referenceType: "invoice_item",
+        referenceId: lineItem.id,
+        createdBy: receivedBy ?? undefined,
+        createLayer: true,
+        expiresAt: existing.expiresAt ?? null,
+        updateAverageCost: true,
+        metadata: {
+          invoiceId,
+          invoiceNumber: invoice.invoiceNumber,
+          receivedStatus: item.receivedStatus,
+        },
+      });
 
       // Log supplier price change
       if (supplier && Math.abs(newCost - oldCost) > 0.0001) {

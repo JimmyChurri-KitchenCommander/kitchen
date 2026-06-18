@@ -4,6 +4,7 @@ import { stocktakesTable, stocktakeItemsTable, inventoryItemsTable, recipesTable
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAdmin } from "../middlewares/venueAuth";
+import { reconcileInventoryStock } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -219,10 +220,22 @@ router.post("/venues/:venueId/stocktakes/:stocktakeId/submit", requireAuth, asyn
         .update(stocktakeItemsTable)
         .set({ actualStock: String(row.actualStock), variance: String(variance) })
         .where(eq(stocktakeItemsTable.id, row.id));
-      await db
-        .update(inventoryItemsTable)
-        .set({ currentStock: String(row.actualStock), lastRestocked: new Date(), updatedAt: new Date() })
-        .where(eq(inventoryItemsTable.id, existing.inventoryItemId));
+      await reconcileInventoryStock({
+        venueId,
+        inventoryItemId: existing.inventoryItemId,
+        actualStock: row.actualStock,
+        unitCost: parseFloat(existing.unitCost),
+        reason: "Submitted stocktake count",
+        referenceType: "stocktake",
+        referenceId: stocktakeId,
+        createdBy: req.userId!,
+        metadata: {
+          stocktakeItemId: existing.id,
+          expectedStock: parseFloat(existing.expectedStock),
+          actualStock: row.actualStock,
+          variance,
+        },
+      });
     }
 
     const [updated] = await db

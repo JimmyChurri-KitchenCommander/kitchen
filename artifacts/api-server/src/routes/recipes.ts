@@ -7,6 +7,7 @@ import { assertVenueAccess, assertVenueAdmin, assertVenueAnyRelation } from "../
 import { computeRecipeCosts, computeRecipeTotalCost, computeRecipeComponents } from "../utils/recipeCost";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { applyInventoryMovements, type InventoryTransactionType } from "../services/inventoryLedger";
 
 const router = Router();
 
@@ -565,29 +566,67 @@ router.post("/venues/:venueId/recipes/:recipeId/log-prep", requireAuth, async (r
 
     const recipeYield = parseFloat(recipe.yield);
     const batches = recipeYield > 0 ? portionsNum / recipeYield : 1;
-    const { enrichedIngredients } = await computeRecipeCosts(recipeId);
+    const { enrichedIngredients, totalCost } = await computeRecipeCosts(recipeId);
+    const movementLabels: Array<{
+      kind: "deduction" | "output";
+      itemName: string;
+      requestedQuantity: number;
+      unit: string;
+    }> = [];
+    const movements: Array<Parameters<typeof applyInventoryMovements>[0][number]> = [];
 
-    const deductions = [];
     for (const ing of enrichedIngredients) {
       if (!ing.inventoryItemId) continue;
       const deductAmount = ing.grossQuantity * batches;
       const [item] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, ing.inventoryItemId));
       if (item) {
-        const newStock = Math.max(0, parseFloat(item.currentStock) - deductAmount);
-        await db.update(inventoryItemsTable).set({ currentStock: newStock.toFixed(4) }).where(eq(inventoryItemsTable.id, item.id));
-        deductions.push({ itemName: ing.itemName, deducted: deductAmount, unit: ing.unit, remaining: newStock });
+        movements.push({
+          venueId,
+          inventoryItemId: item.id,
+          transactionType: "PRODUCTION_INPUT" satisfies InventoryTransactionType,
+          quantityDelta: -deductAmount,
+          unitCost: parseFloat(item.averageCost),
+          reason: `Prep logged for ${recipe.name}`,
+          referenceType: "recipe",
+          referenceId: recipeId,
+          createdBy: req.userId!,
+          metadata: { recipeName: recipe.name, portions: portionsNum, ingredientName: ing.itemName },
+        });
+        movementLabels.push({ kind: "deduction", itemName: ing.itemName, requestedQuantity: deductAmount, unit: ing.unit });
       }
     }
 
     const outputItems = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.venueId, venueId));
     const producedByThis = outputItems.filter(i => i.productionRecipeId === recipeId);
+    const outputUnitCost = recipeYield > 0 ? totalCost / recipeYield : 0;
     for (const produced of producedByThis) {
       const addedQty = recipeYield * batches;
-      const newStock = parseFloat(produced.currentStock) + addedQty;
-      await db.update(inventoryItemsTable)
-        .set({ currentStock: newStock.toFixed(4), lastRestocked: new Date() })
-        .where(eq(inventoryItemsTable.id, produced.id));
+      movements.push({
+        venueId,
+        inventoryItemId: produced.id,
+        transactionType: "PRODUCTION_OUTPUT" satisfies InventoryTransactionType,
+        quantityDelta: addedQty,
+        unitCost: outputUnitCost,
+        reason: `Produced from ${recipe.name}`,
+        referenceType: "recipe",
+        referenceId: recipeId,
+        createdBy: req.userId!,
+        createLayer: true,
+        metadata: { recipeName: recipe.name, portions: portionsNum },
+      });
+      movementLabels.push({ kind: "output", itemName: produced.name, requestedQuantity: addedQty, unit: produced.unit });
     }
+
+    const movementResults = await applyInventoryMovements(movements);
+    const deductions = movementLabels
+      .map((label, index) => ({ label, result: movementResults[index] }))
+      .filter(({ label }) => label.kind === "deduction")
+      .map(({ label, result }) => ({
+        itemName: label.itemName,
+        deducted: label.requestedQuantity,
+        unit: label.unit,
+        remaining: result ? parseFloat(result.item.currentStock) : 0,
+      }));
 
     req.log.info({ venueId, recipeId, portions: portionsNum }, "Prep logged");
     res.json({ portions: portionsNum, deductions });
