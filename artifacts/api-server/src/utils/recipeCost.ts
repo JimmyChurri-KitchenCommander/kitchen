@@ -10,6 +10,7 @@ async function computeComponentsCost(recipeId: number, depth: number, visited: S
   const components = await db
     .select({
       qty: recipeComponentsTable.quantity,
+      unit: recipeComponentsTable.unit,
       yf: recipeComponentsTable.yieldFactor,
       prepRecipeId: recipeComponentsTable.prepRecipeId,
     })
@@ -26,8 +27,14 @@ async function computeComponentsCost(recipeId: number, depth: number, visited: S
     const unitCost = subTotal / subYield;
     const netQty = parseFloat(c.qty);
     const yf = parseFloat(c.yf ?? "1");
-    const grossQty = yf > 0 ? netQty / yf : netQty;
-    total += unitCost * grossQty;
+    const { grossQtyForCost } = computeGrossQtyForCost(
+      netQty,
+      c.unit ?? "",
+      yf,
+      prep.yieldUnit ?? c.unit ?? "",
+      prep.name,
+    );
+    total += unitCost * grossQtyForCost;
   }
   return total;
 }
@@ -93,10 +100,13 @@ export type EnrichedComponent = {
   quantity: number;
   unit: string;
   yieldFactor: number;
+  grossQuantity: number;
   prepYield: number;
   prepYieldUnit: string | null;
   prepPortionCost: number;
   totalCost: number;
+  unitConverted: boolean;
+  conversionNote: string | null;
 };
 
 export async function computeRecipeComponents(recipeId: number, depth = 0): Promise<EnrichedComponent[]> {
@@ -117,6 +127,13 @@ export async function computeRecipeComponents(recipeId: number, depth = 0): Prom
     const netQty = parseFloat(r.comp.quantity);
     const yf = parseFloat(r.comp.yieldFactor ?? "1");
     const grossQty = yf > 0 ? netQty / yf : netQty;
+    const { grossQtyForCost, converted, conversionNote } = computeGrossQtyForCost(
+      netQty,
+      r.comp.unit,
+      yf,
+      r.prep.yieldUnit ?? r.comp.unit,
+      r.prep.name,
+    );
     out.push({
       id: r.comp.id,
       menuRecipeId: r.comp.menuRecipeId,
@@ -125,10 +142,13 @@ export async function computeRecipeComponents(recipeId: number, depth = 0): Prom
       quantity: netQty,
       unit: r.comp.unit,
       yieldFactor: yf,
+      grossQuantity: grossQty,
       prepYield: subYield,
       prepYieldUnit: r.prep.yieldUnit,
       prepPortionCost,
-      totalCost: prepPortionCost * grossQty,
+      totalCost: prepPortionCost * grossQtyForCost,
+      unitConverted: converted,
+      conversionNote: conversionNote ?? null,
     });
   }
   return out;

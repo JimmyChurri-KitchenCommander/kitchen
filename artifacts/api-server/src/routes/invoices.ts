@@ -4,6 +4,7 @@ import { invoicesTable, invoiceItemsTable, venuesTable, inventoryItemsTable, pri
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess, assertVenueAdmin } from "../middlewares/venueAuth";
+import { markRecipeCostsUpdatedForInventoryItems } from "../utils/recipeCostFreshness";
 
 const router = Router();
 
@@ -79,6 +80,7 @@ router.post("/venues/:venueId/invoices", requireAuth, async (req, res): Promise<
         await db.insert(invoiceItemsTable).values(toInsert);
       }
       if (applyToInventory === true && supplierId) {
+        const costChangedItemIds: number[] = [];
         for (const item of items) {
           if (!item.inventoryItemId || item.unitPrice == null) continue;
           const [existing] = await db.select()
@@ -91,6 +93,9 @@ router.post("/venues/:venueId/invoices", requireAuth, async (req, res): Promise<
             .set({ averageCost: String(newCost), supplierId: Number(supplierId), updatedAt: new Date() })
             .where(eq(inventoryItemsTable.id, item.inventoryItemId));
           const changePercent = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : null;
+          if (Math.abs(newCost - oldCost) > 0.0001) {
+            costChangedItemIds.push(item.inventoryItemId);
+          }
           await db.insert(priceHistoryTable).values({
             supplierId: Number(supplierId),
             inventoryItemId: item.inventoryItemId,
@@ -100,6 +105,7 @@ router.post("/venues/:venueId/invoices", requireAuth, async (req, res): Promise<
             changePercent: changePercent !== null ? String(changePercent.toFixed(2)) : null,
           });
         }
+        await markRecipeCostsUpdatedForInventoryItems(venueId, costChangedItemIds);
       }
     }
 

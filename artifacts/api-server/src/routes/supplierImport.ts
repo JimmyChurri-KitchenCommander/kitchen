@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { markRecipeCostsUpdatedForInventoryItems } from "../utils/recipeCostFreshness";
 
 const router = Router();
 
@@ -292,6 +293,7 @@ router.post("/venues/:venueId/suppliers/:supplierId/apply-prices", requireAuth, 
 
     const now = new Date();
     let updated = 0;
+    const costChangedItemIds: number[] = [];
 
     for (const item of items) {
       const [inv] = await db
@@ -303,6 +305,7 @@ router.post("/venues/:venueId/suppliers/:supplierId/apply-prices", requireAuth, 
       const oldPrice = parseFloat(inv.averageCost);
       const newPrice = item.newPrice;
       if (newPrice <= 0) continue;
+      const priceChanged = Math.abs(newPrice - oldPrice) > 0.0001;
 
       await db.update(inventoryItemsTable)
         .set({ averageCost: String(newPrice), updatedAt: now })
@@ -319,9 +322,11 @@ router.post("/venues/:venueId/suppliers/:supplierId/apply-prices", requireAuth, 
         recordedAt: now,
       });
 
+      if (priceChanged) costChangedItemIds.push(item.inventoryItemId);
       updated++;
     }
 
+    await markRecipeCostsUpdatedForInventoryItems(venueId, costChangedItemIds, now);
     res.json({ updated });
   } catch (err) {
     req.log.error({ err }, "Failed to apply prices");
