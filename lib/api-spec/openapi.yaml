@@ -44,6 +44,8 @@ tags:
     description: Chemical safety and MSDS compliance
   - name: compliance
     description: Compliance overview and audit history
+  - name: assistant
+    description: Structured kitchen context for AI assistant and briefing
   - name: stocktakes
     description: Monthly stocktaking
   - name: menus
@@ -4009,6 +4011,39 @@ paths:
                 items:
                   $ref: "#/components/schemas/ComplianceAuditEntry"
 
+  /venues/{venueId}/assistant/context:
+    get:
+      operationId: getKitchenAssistantContext
+      tags: [assistant]
+      summary: Structured kitchen context for assistant and briefing
+      description: Aggregates readiness, food cost, prep, ordering, and waste signals into plain-English briefing answers for common chef questions.
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: targetDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Service date to assess readiness for (defaults to today)
+        - name: covers
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Expected covers override for prep planning (defaults to venue avg covers)
+      responses:
+        "200":
+          description: Kitchen assistant context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KitchenAssistantContext"
+
   /venues/{venueId}/food-cost-confidence:
     get:
       operationId: getFoodCostConfidence
@@ -7916,3 +7951,211 @@ components:
         instructions:
           type: string
           description: Newline-separated prep steps suggested by AI
+
+    AssistantEvidence:
+      type: object
+      required: [label, value]
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+        href:
+          type: string
+
+    AssistantBriefingAnswer:
+      type: object
+      required: [id, question, answer, status, confidence, evidence]
+      properties:
+        id:
+          type: string
+        question:
+          type: string
+        answer:
+          type: string
+        status:
+          type: string
+          enum: [ready, watch, action_required, info]
+        confidence:
+          type: string
+          enum: [high, medium, low]
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantEvidence"
+        href:
+          type: string
+
+    KitchenAssistantContext:
+      type: object
+      required: [meta, readiness, foodCost, prep, ordering, waste, briefing]
+      properties:
+        meta:
+          type: object
+          required: [venueId, venueName, generatedAt, targetDate, tomorrowDate, timezone, avgCoversPerService]
+          properties:
+            venueId:
+              type: integer
+            venueName:
+              type: string
+            generatedAt:
+              type: string
+              format: date-time
+            targetDate:
+              type: string
+              format: date
+            tomorrowDate:
+              type: string
+              format: date
+            timezone:
+              type: string
+            avgCoversPerService:
+              type: integer
+              nullable: true
+        readiness:
+          type: object
+          required: [status, score, headline, blockers]
+          properties:
+            status:
+              type: string
+              enum: [ready, watch, not_ready]
+            score:
+              type: integer
+            headline:
+              type: string
+            blockers:
+              type: array
+              items:
+                type: object
+                required: [category, title, detail, severity, href]
+                properties:
+                  category:
+                    type: string
+                  title:
+                    type: string
+                  detail:
+                    type: string
+                  severity:
+                    type: string
+                    enum: [critical, high, medium]
+                  href:
+                    type: string
+        foodCost:
+          type: object
+          required: [trend, confidenceScore, confidenceLevel, headline, drivers]
+          properties:
+            trend:
+              type: string
+              enum: [stable, rising, uncertain]
+            confidenceScore:
+              type: integer
+            confidenceLevel:
+              type: string
+              enum: [strong, fair, weak]
+            headline:
+              type: string
+            drivers:
+              type: array
+              items:
+                type: object
+                required: [type, label, detail, impact]
+                properties:
+                  type:
+                    type: string
+                  label:
+                    type: string
+                  detail:
+                    type: string
+                  impact:
+                    type: string
+                    enum: [high, medium, low]
+        prep:
+          type: object
+          required: [targetDate, openTaskCount, urgentTaskCount, prepGapCount, suggestedTasks, headline]
+          properties:
+            targetDate:
+              type: string
+              format: date
+            openTaskCount:
+              type: integer
+            urgentTaskCount:
+              type: integer
+            prepGapCount:
+              type: integer
+            suggestedTasks:
+              type: array
+              items:
+                type: object
+                required: [title, recipeName, gapQuantity, unit]
+                properties:
+                  title:
+                    type: string
+                  recipeName:
+                    type: string
+                  gapQuantity:
+                    type: number
+                  unit:
+                    type: string
+            headline:
+              type: string
+        ordering:
+          type: object
+          required: [itemCount, estimatedTotal, urgentCutoffCount, topItems, headline]
+          properties:
+            itemCount:
+              type: integer
+            estimatedTotal:
+              type: number
+            urgentCutoffCount:
+              type: integer
+            topItems:
+              type: array
+              items:
+                type: object
+                required: [itemName, suggestedQty, unit, supplierName]
+                properties:
+                  itemName:
+                    type: string
+                  suggestedQty:
+                    type: number
+                  unit:
+                    type: string
+                  supplierName:
+                    type: string
+                    nullable: true
+            headline:
+              type: string
+        waste:
+          type: object
+          required: [periodDays, totalCost, todayCost, isElevatedToday, topItems, stagnantValue, headline]
+          properties:
+            periodDays:
+              type: integer
+            totalCost:
+              type: number
+            todayCost:
+              type: number
+            isElevatedToday:
+              type: boolean
+            topItems:
+              type: array
+              items:
+                type: object
+                required: [itemName, totalCost, count, topReason]
+                properties:
+                  itemName:
+                    type: string
+                  totalCost:
+                    type: number
+                  count:
+                    type: integer
+                  topReason:
+                    type: string
+            stagnantValue:
+              type: number
+            headline:
+              type: string
+        briefing:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantBriefingAnswer"
