@@ -6796,6 +6796,90 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PrepAlert"
+        attentionSummary:
+          $ref: "#/components/schemas/DashboardAttentionSummary"
+        prepSummary:
+          type: object
+          properties:
+            openTasks:
+              type: integer
+            urgentTasks:
+              type: integer
+            prepAlertCount:
+              type: integer
+        ordersSummary:
+          type: object
+          properties:
+            totalItems:
+              type: integer
+            grandTotal:
+              type: number
+            urgentCutoffCount:
+              type: integer
+        complianceSummary:
+          type: object
+          properties:
+            pendingTaskCount:
+              type: integer
+            cleaningOverdueCount:
+              type: integer
+            temperatureIssueCount:
+              type: integer
+            totalIssueCount:
+              type: integer
+        foodCost:
+          type: object
+          properties:
+            score:
+              type: integer
+            level:
+              type: string
+              enum: [strong, watch, weak]
+            headline:
+              type: string
+        wasteAlert:
+          type: object
+          properties:
+            todayCost:
+              type: number
+            sevenDayAverage:
+              type: number
+            isElevated:
+              type: boolean
+            message:
+              type: ["string", "null"]
+
+    DashboardAttentionSummary:
+      type: object
+      required: [count, headline, items]
+      properties:
+        count:
+          type: integer
+        headline:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardAttentionItem"
+
+    DashboardAttentionItem:
+      type: object
+      required: [id, category, severity, title, detail, href]
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+          enum: [prep, stock, order, compliance, food_cost, waste]
+        severity:
+          type: string
+          enum: [critical, high, medium]
+        title:
+          type: string
+        detail:
+          type: string
+        href:
+          type: string
 
     # ─── ANALYTICS ─────────────────────────────────────────────────────────
     AnalyticsData:

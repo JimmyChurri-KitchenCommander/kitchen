@@ -60,6 +60,28 @@ const SECTION_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+type DashboardAttentionItem = {
+  id: string;
+  category: "prep" | "stock" | "order" | "compliance" | "food_cost" | "waste";
+  severity: "critical" | "high" | "medium";
+  title: string;
+  detail: string;
+  href: string;
+};
+
+type DashboardDecisionLayer = {
+  attentionSummary?: {
+    count: number;
+    headline: string;
+    items: DashboardAttentionItem[];
+  };
+  prepSummary?: { openTasks: number; urgentTasks: number; prepAlertCount: number };
+  ordersSummary?: { totalItems: number; grandTotal: number; urgentCutoffCount: number };
+  complianceSummary?: { pendingTaskCount: number; cleaningOverdueCount: number; temperatureIssueCount: number; totalIssueCount: number };
+  foodCost?: { score: number; level: "strong" | "watch" | "weak"; headline: string };
+  wasteAlert?: { todayCost: number; sevenDayAverage: number; isElevated: boolean; message: string | null };
+};
+
 // ─── Section label ────────────────────────────────────────────────────────────
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -67,6 +89,102 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 pt-1">
       {children}
     </p>
+  );
+}
+
+function categoryIcon(category: DashboardAttentionItem["category"]) {
+  switch (category) {
+    case "prep": return ClipboardList;
+    case "stock": return AlertTriangle;
+    case "order": return Clock;
+    case "compliance": return Thermometer;
+    case "food_cost": return DollarSign;
+    case "waste": return Trash2;
+  }
+}
+
+function severityStyles(severity: DashboardAttentionItem["severity"]) {
+  if (severity === "critical") return "border-red-300 bg-red-50 text-red-800";
+  if (severity === "high") return "border-orange-300 bg-orange-50 text-orange-800";
+  return "border-amber-300 bg-amber-50 text-amber-800";
+}
+
+function HeadChefAttentionCard({
+  decisionLayer,
+}: {
+  decisionLayer: DashboardDecisionLayer;
+}) {
+  const attention = decisionLayer.attentionSummary;
+  if (!attention) return null;
+
+  const allClear = attention.count === 0;
+  return (
+    <Card className={cn("overflow-hidden", allClear ? "border-green-200 bg-green-50/60" : "border-primary/30 bg-card")}>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Today</p>
+            <h2 className="text-xl font-bold text-foreground mt-1">{attention.headline}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {allClear ? "No urgent stock, prep, ordering, compliance, food cost, or waste issues detected." : "Start with these before service gets noisy."}
+            </p>
+          </div>
+          <div className={cn(
+            "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
+            allClear ? "bg-green-100 text-green-700" : "bg-primary/10 text-primary"
+          )}>
+            {allClear ? <CheckCircle2 className="w-6 h-6" /> : <ChefHat className="w-6 h-6" />}
+          </div>
+        </div>
+
+        {!allClear && (
+          <div className="space-y-2">
+            {attention.items.map(item => {
+              const Icon = categoryIcon(item.category);
+              return (
+                <Link key={item.id} href={item.href}>
+                  <div className={cn("rounded-lg border p-3 flex items-start gap-3 hover:brightness-95 transition", severityStyles(item.severity))}>
+                    <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold leading-tight">{item.title}</p>
+                      <p className="text-xs opacity-80 mt-0.5">{item.detail}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 shrink-0 opacity-60" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <Link href="/prep-board">
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Prep</p>
+              <p className="text-sm font-bold text-foreground">{decisionLayer.prepSummary?.openTasks ?? 0} open</p>
+            </div>
+          </Link>
+          <Link href="/orders">
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Orders</p>
+              <p className="text-sm font-bold text-foreground">{decisionLayer.ordersSummary?.totalItems ?? 0} items</p>
+            </div>
+          </Link>
+          <Link href="/temperature">
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Compliance</p>
+              <p className="text-sm font-bold text-foreground">{decisionLayer.complianceSummary?.totalIssueCount ?? 0} issues</p>
+            </div>
+          </Link>
+          <Link href="/recipes">
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Food cost</p>
+              <p className="text-sm font-bold text-foreground">{decisionLayer.foodCost?.score ?? 100}%</p>
+            </div>
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1634,6 +1752,7 @@ export default function DashboardPage() {
   if (!dashboard) return null;
 
   const isSetup = dashboard.inventoryValue > 0 || dashboard.supplierCutoffs.length > 0;
+  const decisionLayer = dashboard as typeof dashboard & DashboardDecisionLayer;
 
   // ── Shared header ──────────────────────────────────────────────────────────
   const header = (
@@ -1671,6 +1790,7 @@ export default function DashboardPage() {
     return (
       <div className="space-y-4 pb-28">
         {header}
+        <HeadChefAttentionCard decisionLayer={decisionLayer} />
         {(isCriticalPhase || isRampingUp) && (
           <div className="flex items-center gap-2 px-1">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
@@ -1719,6 +1839,8 @@ export default function DashboardPage() {
       {v3 && <ServiceIntelligencePanel intelligence={intelligence} />}
 
       <SetupProgressWidget venueId={activeVenueId} />
+
+      <HeadChefAttentionCard decisionLayer={decisionLayer} />
 
       {/* ── SECTION 1: Immediate Actions ── */}
       <div className="space-y-3">
