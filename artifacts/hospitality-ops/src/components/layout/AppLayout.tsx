@@ -15,7 +15,7 @@ import {
   LineChart, Settings, Building, Menu, X, LogOut, Users,
   ShoppingCart, ClipboardList, Sparkles, ClipboardCheck,
   UtensilsCrossed, Thermometer, Archive, ChevronDown,
-  Shield, Zap, Layers, GraduationCap, BookOpen,
+  Shield, Zap, Layers, GraduationCap, BookOpen, Brain,
   Scissors, Fish, Leaf, Droplets, Flame, Snowflake,
   FlaskConical, Atom, Scale, Wrench, FileText,
   ArrowLeftRight, AlertTriangle, Database, Pencil,
@@ -54,6 +54,8 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ChefHat,
     colorClass: "text-orange-500",
     items: [
+      { href: "/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
+      { href: "/kitchen-brief",  label: "Kitchen Brief", icon: Brain },
       { href: "/service-mode",      label: "Service Mode", icon: Zap,             moduleId: "prep-board" },
       { href: "/prep-board",        label: "Prep Board",   icon: ClipboardList,   moduleId: "prep-board" },
       { href: "/recipes",           label: "Recipes",      icon: ChefHat,         moduleId: "recipes" },

@@ -251,6 +251,7 @@ import ServiceModePage from "./pages/service-mode";
 import StaffQuickStartPage from "./pages/staff-quick-start";
 import IntelligencePage from "./pages/intelligence";
 import KitchenIntelligencePage from "./pages/kitchen-intelligence";
+import KitchenBriefPage from "./pages/kitchen-brief";
 import { ComingSoonPage } from "./pages/ComingSoonPage";
 import PrimalButcherApp from "./pages/PrimalButcherApp";
 import ButcheryBoardPage from "./pages/ButcheryBoardPage";
@@ -432,6 +433,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/onboarding" component={OnboardingRouteInner} />
 
             <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
+            <Route path="/kitchen-brief" component={() => <ProtectedRoute component={KitchenBriefPage} />} />
             <Route path="/venues" component={() => <ProtectedRoute component={VenuesPage} />} />
 
             <Route path="/inventory" component={() => <ProtectedRoute component={InventoryPage} />} />
