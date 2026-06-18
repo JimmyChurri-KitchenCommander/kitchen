@@ -18,11 +18,14 @@ import {
   useScanPrepListImage,
   useDeferPrepTask,
   useListRecipes,
+  useListMenus,
   useGetVenue,
+  customFetch,
   getListPrepTasksQueryKey,
   getListArchivedPrepTasksQueryKey,
   getListVenueStaffQueryKey,
   getListRecipesQueryKey,
+  getListMenusQueryKey,
   getGetVenueQueryKey,
   useListPrepLibraryTasks,
   useCreatePrepLibraryTask,
@@ -201,6 +204,80 @@ type LibraryForm = {
   batchSize: string; notes: string; estimatedMinutes: string; recipeId?: number;
   status: string;
   quickInstructions: string; imageUrl: string; trainingTags: string;
+};
+
+type PrepPlanResult = {
+  venueId: number;
+  prepDate: string;
+  menuId: number | null;
+  menuName: string | null;
+  totalCovers: number;
+  servicePeriods: Array<{ label: string; covers: number }>;
+  menuProduction: Array<{
+    recipeId: number;
+    recipeName: string;
+    category: string | null;
+    portionsRequired: number;
+    batches: number;
+    yieldQuantity: number;
+    yieldUnit: string | null;
+  }>;
+  prepRequirements: Array<{
+    recipeId: number;
+    recipeName: string;
+    inventoryItemId: number | null;
+    requiredQuantity: number;
+    currentStock: number;
+    parLevel: number;
+    gapQuantity: number;
+    unit: string;
+    sources: string[];
+  }>;
+  ingredientRequirements: Array<{
+    inventoryItemId: number;
+    itemName: string;
+    requiredQuantity: number;
+    currentStock: number;
+    parLevel: number;
+    gapQuantity: number;
+    unit: string;
+    supplierId: number | null;
+    sources: string[];
+  }>;
+  orderingRequirements: Array<{
+    inventoryItemId: number;
+    itemName: string;
+    suggestedOrderQuantity: number;
+    unit: string;
+    demandGapQuantity: number;
+    parGapQuantity: number;
+    reason: string;
+    sources: string[];
+  }>;
+  suggestedPrepTasks: Array<{
+    recipeId: number;
+    recipeName: string;
+    inventoryItemId: number | null;
+    title: string;
+    quantity: number;
+    unit: string;
+    priority: string;
+    shift: string;
+    reason: string;
+    sources: string[];
+    libraryTask: {
+      id: number;
+      title: string;
+      category: string;
+      section: string;
+      shift: string;
+      priority: string;
+      quantity: number | null;
+      unit: string | null;
+    } | null;
+  }>;
+  warnings: string[];
+  assumptions: string[];
 };
 
 const emptyLibraryForm = (): LibraryForm => ({
@@ -648,6 +725,15 @@ export default function PrepBoardPage() {
   const [buildQuantities, setBuildQuantities] = useState<Record<number, { quantity: string; unit: string }>>({});
   const [buildBrowseSearch, setBuildBrowseSearch] = useState("");
 
+  // ── Cover-based prep planner ───────────────────────────────────────────────
+  const [showCoversPlanDialog, setShowCoversPlanDialog] = useState(false);
+  const [planMenuId, setPlanMenuId] = useState<string>("");
+  const [planCovers, setPlanCovers] = useState<Record<string, string>>({});
+  const [prepPlan, setPrepPlan] = useState<PrepPlanResult | null>(null);
+  const [isCalculatingPlan, setIsCalculatingPlan] = useState(false);
+  const [isAddingPlanTasks, setIsAddingPlanTasks] = useState(false);
+  const [selectedPlanTasks, setSelectedPlanTasks] = useState<Set<number>>(new Set());
+
   // ── Quick Add dialog ───────────────────────────────────────────────────────
   const [showQuickAddDialog, setShowQuickAddDialog] = useState(false);
   const [quickAddForm, setQuickAddForm] = useState({ title: "", section: "other", category: "other", priority: "medium", addToLibrary: true, quantity: "", unit: "" });
@@ -691,6 +777,10 @@ export default function PrepBoardPage() {
 
   const { data: recipes = [] } = useListRecipes(activeVenueId ?? 0, undefined, {
     query: { enabled: !!activeVenueId && (showTaskDialog || showLibraryDialog), queryKey: getListRecipesQueryKey(activeVenueId ?? 0) },
+  });
+
+  const { data: menus = [] } = useListMenus(activeVenueId ?? 0, {
+    query: { enabled: !!activeVenueId && showCoversPlanDialog, queryKey: getListMenusQueryKey(activeVenueId ?? 0) },
   });
 
   const { data: libraryTasks = [] } = useListPrepLibraryTasks(activeVenueId ?? 0, undefined, {
@@ -952,6 +1042,113 @@ export default function PrepBoardPage() {
     setBuildQuantities({});
     setBuildBrowseSearch("");
     setShowBuildDialog(true);
+  }
+
+  function serviceWindowLabels(): string[] {
+    const windows = (venueData?.serviceWindows ?? []) as Array<{ name?: string; label?: string }>;
+    const labels = windows
+      .map(w => w.name || w.label)
+      .filter((label): label is string => Boolean(label));
+    return labels.length > 0 ? labels : ["Lunch", "Dinner"];
+  }
+
+  function openCoversPlanDialog() {
+    const avgCovers = (venueData as { avgCoversPerService?: number | null } | undefined)?.avgCoversPerService ?? 0;
+    const labels = serviceWindowLabels();
+    const covers: Record<string, string> = {};
+    labels.forEach((label) => { covers[label] = avgCovers > 0 ? String(avgCovers) : ""; });
+    const activeMenu = menus.find(menu => menu.isActive) ?? menus[0];
+    setPlanMenuId(activeMenu ? String(activeMenu.id) : "");
+    setPlanCovers(covers);
+    setPrepPlan(null);
+    setSelectedPlanTasks(new Set());
+    setShowCoversPlanDialog(true);
+  }
+
+  useEffect(() => {
+    if (!showCoversPlanDialog) return;
+    if (!planMenuId && menus.length > 0) {
+      const activeMenu = menus.find(menu => menu.isActive) ?? menus[0];
+      if (activeMenu) setPlanMenuId(String(activeMenu.id));
+    }
+    if (Object.keys(planCovers).length === 0) {
+      const avgCovers = (venueData as { avgCoversPerService?: number | null } | undefined)?.avgCoversPerService ?? 0;
+      const covers: Record<string, string> = {};
+      serviceWindowLabels().forEach((label) => { covers[label] = avgCovers > 0 ? String(avgCovers) : ""; });
+      setPlanCovers(covers);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCoversPlanDialog, menus, venueData]);
+
+  async function calculateCoversPlan() {
+    if (!activeVenueId) return;
+    const servicePeriods = Object.entries(planCovers)
+      .map(([label, covers]) => ({ label, covers: Number(covers) || 0 }))
+      .filter(period => period.covers > 0);
+    if (servicePeriods.length === 0) {
+      toast({ title: "Add covers first", description: "Enter expected covers for at least one service.", variant: "destructive" });
+      return;
+    }
+    setIsCalculatingPlan(true);
+    try {
+      const plan = await customFetch<PrepPlanResult>(
+        `/api/venues/${activeVenueId}/prep-plan/calculate`,
+        {
+          method: "POST",
+          responseType: "json",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            menuId: planMenuId ? Number(planMenuId) : undefined,
+            prepDate: selectedDate,
+            servicePeriods,
+          }),
+        },
+      );
+      setPrepPlan(plan);
+      setSelectedPlanTasks(new Set(plan.suggestedPrepTasks.map((_, index) => index)));
+    } catch (err) {
+      toast({ title: "Could not calculate prep plan", description: err instanceof Error ? err.message : "Try again", variant: "destructive" });
+    } finally {
+      setIsCalculatingPlan(false);
+    }
+  }
+
+  async function addPlanTasksToBoard() {
+    if (!activeVenueId || !prepPlan) return;
+    const tasks = prepPlan.suggestedPrepTasks.filter((_, index) => selectedPlanTasks.has(index));
+    if (tasks.length === 0) return;
+    setIsAddingPlanTasks(true);
+    try {
+      for (const task of tasks) {
+        await customFetch(`/api/venues/${activeVenueId}/prep-tasks`, {
+          method: "POST",
+          responseType: "json",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: task.title,
+            description: task.reason,
+            category: task.libraryTask?.category ?? "sauce",
+            section: task.libraryTask?.section ?? "make",
+            shift: task.libraryTask?.shift ?? task.shift,
+            priority: task.libraryTask?.priority ?? task.priority,
+            prepDate: selectedDate,
+            recipeId: task.recipeId,
+            libraryTaskId: task.libraryTask?.id ?? undefined,
+            quantity: task.quantity,
+            unit: task.unit,
+            isCritical: true,
+            notes: `Generated from cover plan for ${prepPlan.totalCovers} covers. Sources: ${task.sources.join(", ")}`,
+          }),
+        });
+      }
+      invalidate();
+      setShowCoversPlanDialog(false);
+      toast({ title: `${tasks.length} prep task${tasks.length !== 1 ? "s" : ""} added`, description: "Your board now reflects the cover plan." });
+    } catch (err) {
+      toast({ title: "Could not add prep tasks", description: err instanceof Error ? err.message : "Try again", variant: "destructive" });
+    } finally {
+      setIsAddingPlanTasks(false);
+    }
   }
 
   // Auto-apply defaults once when suggestions first arrive and nothing is selected yet.
@@ -1218,6 +1415,10 @@ export default function PrepBoardPage() {
             </div>
 
             <div className="flex gap-2 flex-wrap">
+              <Button size="sm" variant="outline" onClick={openCoversPlanDialog}>
+                <ChefHat className="w-4 h-4 mr-1.5" />
+                Plan from covers
+              </Button>
               {activeLibraryTasks.length > 0 && (
                 <Button size="sm" onClick={openBuildDialog}>
                   <ClipboardList className="w-4 h-4 mr-1.5" />
@@ -1370,6 +1571,9 @@ export default function PrepBoardPage() {
                     <ClipboardList className="w-4 h-4 mr-1.5" />Build Prep List
                   </Button>
                 )}
+                <Button variant="outline" size="sm" onClick={openCoversPlanDialog}>
+                  <ChefHat className="w-4 h-4 mr-1.5" />Plan from covers
+                </Button>
                 <Button variant="outline" size="sm" onClick={openTemplateDialog}>
                   <CalendarDays className="w-4 h-4 mr-1.5" />Previous list
                 </Button>
@@ -1771,6 +1975,189 @@ export default function PrepBoardPage() {
                 {claimName ? "Claim it" : "Remove claim"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cover-driven prep plan dialog */}
+      <Dialog open={showCoversPlanDialog} onOpenChange={open => {
+        setShowCoversPlanDialog(open);
+        if (!open) { setPrepPlan(null); setSelectedPlanTasks(new Set()); }
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Plan prep from covers</DialogTitle>
+            <DialogDescription>
+              Enter expected covers and Kitchen Command will calculate prep, stock gaps, and ordering pressure.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Menu</Label>
+                <Select value={planMenuId || "__active__"} onValueChange={v => setPlanMenuId(v === "__active__" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Active menu" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__active__">Active menu</SelectItem>
+                    {menus.map(menu => (
+                      <SelectItem key={menu.id} value={String(menu.id)}>
+                        {menu.name}{menu.isActive ? " — active" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Prep date</Label>
+                <Input type="date" value={selectedDate} onChange={e => e.target.value && setSelectedDate(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">Expected covers</p>
+                <p className="text-xs text-muted-foreground">
+                  Total {Object.values(planCovers).reduce((sum, value) => sum + (Number(value) || 0), 0)} covers
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {Object.entries(planCovers).map(([label, covers]) => (
+                  <div key={label} className="grid grid-cols-[1fr_110px] gap-2 items-center">
+                    <Label className="text-sm text-muted-foreground">{label}</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={covers}
+                      onChange={e => setPlanCovers(prev => ({ ...prev, [label]: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Button onClick={calculateCoversPlan} disabled={isCalculatingPlan} className="w-full">
+              {isCalculatingPlan ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ChefHat className="w-4 h-4 mr-2" />}
+              Calculate prep plan
+            </Button>
+
+            {prepPlan && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Covers</p>
+                    <p className="text-xl font-bold text-foreground">{prepPlan.totalCovers}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Menu items</p>
+                    <p className="text-xl font-bold text-foreground">{prepPlan.menuProduction.length}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Prep gaps</p>
+                    <p className="text-xl font-bold text-foreground">{prepPlan.prepRequirements.filter(r => r.gapQuantity > 0).length}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Order gaps</p>
+                    <p className="text-xl font-bold text-foreground">{prepPlan.orderingRequirements.length}</p>
+                  </div>
+                </div>
+
+                {prepPlan.assumptions.length > 0 && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 space-y-1">
+                    {prepPlan.assumptions.map((assumption, index) => <p key={index}>{assumption}</p>)}
+                  </div>
+                )}
+
+                {prepPlan.warnings.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Check before service</p>
+                    {prepPlan.warnings.slice(0, 5).map((warning, index) => (
+                      <p key={index} className="text-xs text-amber-800">- {warning}</p>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-foreground">Menu production</p>
+                  <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                    {prepPlan.menuProduction.slice(0, 8).map(item => (
+                      <div key={item.recipeId} className="flex items-center justify-between gap-3 p-3 text-sm">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">{item.recipeName}</p>
+                          <p className="text-xs text-muted-foreground">{item.batches} batch{item.batches === 1 ? "" : "es"} from {item.yieldQuantity} {item.yieldUnit ?? "yield"}</p>
+                        </div>
+                        <p className="font-semibold text-foreground">{item.portionsRequired} portions</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-foreground">Prep required</p>
+                    <p className="text-xs text-muted-foreground">{selectedPlanTasks.size} selected</p>
+                  </div>
+                  {prepPlan.suggestedPrepTasks.length === 0 ? (
+                    <div className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                      No prep stock gaps found for these covers.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                      {prepPlan.suggestedPrepTasks.map((task, index) => (
+                        <label key={`${task.recipeId}-${index}`} className="flex items-start gap-3 p-3 cursor-pointer hover:bg-secondary/30">
+                          <Checkbox
+                            checked={selectedPlanTasks.has(index)}
+                            onCheckedChange={() => {
+                              const next = new Set(selectedPlanTasks);
+                              if (next.has(index)) next.delete(index); else next.add(index);
+                              setSelectedPlanTasks(next);
+                            }}
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{task.title}</p>
+                            <p className="text-xs text-muted-foreground">{task.reason}</p>
+                            {!task.libraryTask && (
+                              <p className="text-xs text-amber-700 mt-1">No linked library task yet — this will create a one-off board task.</p>
+                            )}
+                          </div>
+                          <p className="text-sm font-bold text-foreground shrink-0">{task.quantity} {task.unit}</p>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {prepPlan.orderingRequirements.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-foreground">Ordering gaps</p>
+                    <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                      {prepPlan.orderingRequirements.slice(0, 8).map(item => (
+                        <div key={item.inventoryItemId} className="flex items-center justify-between gap-3 p-3 text-sm">
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground truncate">{item.itemName}</p>
+                            <p className="text-xs text-muted-foreground">{item.reason}</p>
+                          </div>
+                          <p className="font-semibold text-foreground">Order {item.suggestedOrderQuantity} {item.unit}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <Button variant="outline" className="flex-1" asChild>
+                    <Link href="/orders">Review order gaps</Link>
+                  </Button>
+                  <Button className="flex-1" onClick={addPlanTasksToBoard} disabled={selectedPlanTasks.size === 0 || isAddingPlanTasks}>
+                    {isAddingPlanTasks ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                    Add selected prep tasks
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

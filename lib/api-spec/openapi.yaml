@@ -32,6 +32,8 @@ tags:
     description: Suggested order generation
   - name: prep-tasks
     description: Prep task board management
+  - name: prep-plan
+    description: Cover-driven prep planning
   - name: prep-library
     description: Master prep task library management
   - name: cleaning
@@ -2708,6 +2710,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/PrepTask"
 
+  /venues/{venueId}/prep-plan/calculate:
+    post:
+      operationId: calculatePrepPlan
+      tags: [prep-plan]
+      summary: Calculate cover-driven prep, stock, and ordering requirements
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepPlanInput"
+      responses:
+        "200":
+          description: Calculated prep plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepPlanResult"
+
   /venues/{venueId}/prep-tasks/archived:
     get:
       operationId: listArchivedPrepTasks
@@ -5096,6 +5123,224 @@ components:
           items:
             type: string
           description: Possible interpretations for the user to choose from
+
+    PrepPlanServicePeriodInput:
+      type: object
+      required: [label, covers]
+      properties:
+        label:
+          type: string
+        covers:
+          type: number
+
+    PrepPlanInput:
+      type: object
+      required: [servicePeriods]
+      properties:
+        menuId:
+          type: integer
+        prepDate:
+          type: string
+          format: date
+        servicePeriods:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanServicePeriodInput"
+        mixOverrides:
+          type: object
+          additionalProperties:
+            type: number
+          description: Optional recipeId to mix weight map. If omitted, covers are split evenly across menu items.
+
+    PrepPlanServicePeriod:
+      type: object
+      required: [label, covers]
+      properties:
+        label:
+          type: string
+        covers:
+          type: number
+
+    PrepPlanMenuProduction:
+      type: object
+      required: [recipeId, recipeName, portionsRequired, batches, yieldQuantity, serviceBreakdown]
+      properties:
+        recipeId:
+          type: integer
+        recipeName:
+          type: string
+        category:
+          type: ["string", "null"]
+        portionsRequired:
+          type: number
+        batches:
+          type: number
+        yieldQuantity:
+          type: number
+        yieldUnit:
+          type: ["string", "null"]
+        serviceBreakdown:
+          type: array
+          items:
+            type: object
+            required: [label, covers, portions]
+            properties:
+              label:
+                type: string
+              covers:
+                type: number
+              portions:
+                type: number
+
+    PrepPlanRequirement:
+      type: object
+      required: [requiredQuantity, currentStock, gapQuantity, unit, sources]
+      properties:
+        recipeId:
+          type: integer
+        recipeName:
+          type: string
+        inventoryItemId:
+          type: ["integer", "null"]
+        itemName:
+          type: string
+        requiredQuantity:
+          type: number
+        currentStock:
+          type: number
+        parLevel:
+          type: number
+        gapQuantity:
+          type: number
+        parGapQuantity:
+          type: number
+        unit:
+          type: string
+        supplierId:
+          type: ["integer", "null"]
+        sources:
+          type: array
+          items:
+            type: string
+
+    PrepPlanOrderingRequirement:
+      type: object
+      required: [inventoryItemId, itemName, suggestedOrderQuantity, unit, reason, sources]
+      properties:
+        inventoryItemId:
+          type: integer
+        itemName:
+          type: string
+        suggestedOrderQuantity:
+          type: number
+        unit:
+          type: string
+        demandGapQuantity:
+          type: number
+        parGapQuantity:
+          type: number
+        supplierId:
+          type: ["integer", "null"]
+        reason:
+          type: string
+        sources:
+          type: array
+          items:
+            type: string
+
+    PrepPlanSuggestedTask:
+      type: object
+      required: [recipeId, recipeName, title, quantity, unit, priority, shift, reason, sources]
+      properties:
+        recipeId:
+          type: integer
+        recipeName:
+          type: string
+        inventoryItemId:
+          type: ["integer", "null"]
+        title:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: string
+        priority:
+          type: string
+        shift:
+          type: string
+        reason:
+          type: string
+        sources:
+          type: array
+          items:
+            type: string
+        libraryTask:
+          type: ["object", "null"]
+          properties:
+            id:
+              type: integer
+            title:
+              type: string
+            category:
+              type: string
+            section:
+              type: string
+            shift:
+              type: string
+            priority:
+              type: string
+            quantity:
+              type: ["number", "null"]
+            unit:
+              type: ["string", "null"]
+
+    PrepPlanResult:
+      type: object
+      required: [venueId, prepDate, menuId, totalCovers, servicePeriods, menuProduction, prepRequirements, ingredientRequirements, orderingRequirements, suggestedPrepTasks, warnings, assumptions]
+      properties:
+        venueId:
+          type: integer
+        prepDate:
+          type: string
+          format: date
+        menuId:
+          type: ["integer", "null"]
+        menuName:
+          type: ["string", "null"]
+        totalCovers:
+          type: number
+        servicePeriods:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanServicePeriod"
+        menuProduction:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanMenuProduction"
+        prepRequirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanRequirement"
+        ingredientRequirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanRequirement"
+        orderingRequirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanOrderingRequirement"
+        suggestedPrepTasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanSuggestedTask"
+        warnings:
+          type: array
+          items:
+            type: string
+        assumptions:
+          type: array
+          items:
+            type: string
 
     InventoryAISuggestion:
       type: object
