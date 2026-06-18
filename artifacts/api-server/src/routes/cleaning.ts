@@ -1,17 +1,13 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { cleaningTasksTable, cleaningLogsTable, venuesTable } from "@workspace/db";
+import { cleaningTasksTable, cleaningLogsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
+import { assertVenueAccess, assertVenueAdmin } from "../middlewares/venueAuth";
 
 const router = Router();
 
-async function assertVenueOwner(venueId: number, userId: string) {
-  const [venue] = await db.select().from(venuesTable).where(eq(venuesTable.id, venueId));
-  return venue && venue.userId === userId;
-}
-
-function frequencyToDays(frequency: string): number {
+export function cleaningFrequencyToDays(frequency: string): number {
   switch (frequency) {
     case "daily": return 1;
     case "weekly": return 7;
@@ -23,7 +19,7 @@ function frequencyToDays(frequency: string): number {
 }
 
 function parseTask(t: typeof cleaningTasksTable.$inferSelect) {
-  const intervalDays = frequencyToDays(t.frequency);
+  const intervalDays = cleaningFrequencyToDays(t.frequency);
   const nextDueAt = t.lastCompletedAt
     ? new Date(t.lastCompletedAt.getTime() + intervalDays * 24 * 60 * 60 * 1000).toISOString()
     : null;
@@ -34,6 +30,7 @@ function parseTask(t: typeof cleaningTasksTable.$inferSelect) {
     title: t.title,
     area: t.area,
     frequency: t.frequency,
+    taskKind: t.taskKind,
     assignedTo: t.assignedTo ?? null,
     notes: t.notes ?? null,
     isActive: t.isActive,
@@ -49,10 +46,13 @@ function parseTask(t: typeof cleaningTasksTable.$inferSelect) {
 router.get("/venues/:venueId/cleaning-tasks", requireAuth, async (req, res): Promise<void> => {
   try {
     const venueId = parseInt(req.params["venueId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
+    if (!(await assertVenueAccess(venueId, req.userId!))) {
       res.status(404).json({ error: "Venue not found" }); return;
     }
-    const tasks = await db.select().from(cleaningTasksTable).where(eq(cleaningTasksTable.venueId, venueId));
+    const taskKind = req.query["taskKind"] as string | undefined;
+    const conditions = [eq(cleaningTasksTable.venueId, venueId)];
+    if (taskKind && taskKind !== "all") conditions.push(eq(cleaningTasksTable.taskKind, taskKind));
+    const tasks = await db.select().from(cleaningTasksTable).where(and(...conditions));
     res.json(tasks.map(parseTask));
   } catch (err) {
     req.log.error({ err }, "Failed to list cleaning tasks");
@@ -64,16 +64,17 @@ router.get("/venues/:venueId/cleaning-tasks", requireAuth, async (req, res): Pro
 router.post("/venues/:venueId/cleaning-tasks", requireAuth, async (req, res): Promise<void> => {
   try {
     const venueId = parseInt(req.params["venueId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
-      res.status(404).json({ error: "Venue not found" }); return;
+    if (!(await assertVenueAdmin(venueId, req.userId!))) {
+      res.status(403).json({ error: "Admin access required" }); return;
     }
-    const { title, area, frequency, assignedTo, notes } = req.body as Record<string, unknown>;
+    const { title, area, frequency, taskKind, assignedTo, notes } = req.body as Record<string, unknown>;
     if (!title) { res.status(400).json({ error: "title is required" }); return; }
     const [task] = await db.insert(cleaningTasksTable).values({
       venueId,
       title: title as string,
       area: (area as string) ?? "other",
       frequency: (frequency as string) ?? "daily",
+      taskKind: (taskKind as string) ?? "cleaning",
       assignedTo: assignedTo as string | undefined,
       notes: notes as string | undefined,
     }).returning();
@@ -89,15 +90,16 @@ router.put("/venues/:venueId/cleaning-tasks/:taskId", requireAuth, async (req, r
   try {
     const venueId = parseInt(req.params["venueId"] as string);
     const taskId = parseInt(req.params["taskId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
-      res.status(404).json({ error: "Venue not found" }); return;
+    if (!(await assertVenueAdmin(venueId, req.userId!))) {
+      res.status(403).json({ error: "Admin access required" }); return;
     }
-    const { title, area, frequency, assignedTo, notes, isActive } = req.body as Record<string, unknown>;
+    const { title, area, frequency, taskKind, assignedTo, notes, isActive } = req.body as Record<string, unknown>;
     const [updated] = await db.update(cleaningTasksTable)
       .set({
         ...(title !== undefined && { title: title as string }),
         ...(area !== undefined && { area: area as string }),
         ...(frequency !== undefined && { frequency: frequency as string }),
+        ...(taskKind !== undefined && { taskKind: taskKind as string }),
         ...(assignedTo !== undefined && { assignedTo: assignedTo as string }),
         ...(notes !== undefined && { notes: notes as string }),
         ...(isActive !== undefined && { isActive: isActive as boolean }),
@@ -118,8 +120,8 @@ router.delete("/venues/:venueId/cleaning-tasks/:taskId", requireAuth, async (req
   try {
     const venueId = parseInt(req.params["venueId"] as string);
     const taskId = parseInt(req.params["taskId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
-      res.status(404).json({ error: "Venue not found" }); return;
+    if (!(await assertVenueAdmin(venueId, req.userId!))) {
+      res.status(403).json({ error: "Admin access required" }); return;
     }
     await db.delete(cleaningTasksTable).where(and(eq(cleaningTasksTable.id, taskId), eq(cleaningTasksTable.venueId, venueId)));
     res.status(204).send();
@@ -134,7 +136,7 @@ router.post("/venues/:venueId/cleaning-tasks/:taskId/complete", requireAuth, asy
   try {
     const venueId = parseInt(req.params["venueId"] as string);
     const taskId = parseInt(req.params["taskId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
+    if (!(await assertVenueAccess(venueId, req.userId!))) {
       res.status(404).json({ error: "Venue not found" }); return;
     }
     const { completedBy, notes } = req.body as Record<string, unknown>;
@@ -167,7 +169,7 @@ router.post("/venues/:venueId/cleaning-tasks/:taskId/complete", requireAuth, asy
 router.get("/venues/:venueId/cleaning-logs", requireAuth, async (req, res): Promise<void> => {
   try {
     const venueId = parseInt(req.params["venueId"] as string);
-    if (!(await assertVenueOwner(venueId, req.userId!))) {
+    if (!(await assertVenueAccess(venueId, req.userId!))) {
       res.status(404).json({ error: "Venue not found" }); return;
     }
     const logs = await db.select().from(cleaningLogsTable)

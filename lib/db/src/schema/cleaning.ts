@@ -9,6 +9,7 @@ export const cleaningTasksTable = pgTable("cleaning_tasks", {
   title: text("title").notNull(),
   area: text("area").notNull().default("other"),
   frequency: text("frequency").notNull().default("daily"),
+  taskKind: text("task_kind").notNull().default("cleaning"),
   assignedTo: text("assigned_to"),
   notes: text("notes"),
   isActive: boolean("is_active").notNull().default(true),

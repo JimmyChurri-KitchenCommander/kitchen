@@ -38,6 +38,12 @@ tags:
     description: Master prep task library management
   - name: cleaning
     description: Cleaning roster management
+  - name: temperature
+    description: Temperature logging and equipment checks
+  - name: chemicals
+    description: Chemical safety and MSDS compliance
+  - name: compliance
+    description: Compliance overview and audit history
   - name: stocktakes
     description: Monthly stocktaking
   - name: menus
@@ -3952,6 +3958,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/ComplianceSummary"
 
+  /venues/{venueId}/compliance/overview:
+    get:
+      operationId: getComplianceOverview
+      tags: [compliance]
+      summary: Unified compliance overview across temperature, cleaning/checklists, chemicals, and allergens
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Compliance overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceOverview"
+
+  /venues/{venueId}/compliance/audit-trail:
+    get:
+      operationId: getComplianceAuditTrail
+      tags: [compliance]
+      summary: Unified compliance audit trail
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Compliance audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplianceAuditEntry"
+
   /venues/{venueId}/food-cost-confidence:
     get:
       operationId: getFoodCostConfidence
@@ -5672,6 +5729,10 @@ components:
         frequency:
           type: string
           enum: [daily, weekly, fortnightly, monthly, quarterly]
+        taskKind:
+          type: string
+          enum: [cleaning, opening, closing, equipment]
+          description: Compliance checklist kind
         assignedTo:
           type: ["string", "null"]
         notes:
@@ -5706,6 +5767,9 @@ components:
         frequency:
           type: string
           enum: [daily, weekly, fortnightly, monthly, quarterly]
+        taskKind:
+          type: string
+          enum: [cleaning, opening, closing, equipment]
         assignedTo:
           type: string
         notes:
@@ -7534,6 +7598,91 @@ components:
               status:
                 type: string
                 enum: [VALID, EXPIRING_SOON, EXPIRED, MISSING_MSDS, BLOCKED]
+
+    ComplianceOverview:
+      type: object
+      required: [score, status, totalIssues, temperature, checklists, chemicals, allergens]
+      properties:
+        score:
+          type: integer
+        status:
+          type: string
+          enum: [ready, watch, action_required]
+        totalIssues:
+          type: integer
+        temperature:
+          type: object
+          required: [equipmentCount, checksToday, unresolvedFails, overdueCount]
+          properties:
+            equipmentCount:
+              type: integer
+            checksToday:
+              type: integer
+            unresolvedFails:
+              type: integer
+            overdueCount:
+              type: integer
+        checklists:
+          type: object
+          required: [total, overdue, byKind]
+          properties:
+            total:
+              type: integer
+            overdue:
+              type: integer
+            byKind:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  overdue:
+                    type: integer
+        chemicals:
+          type: object
+          required: [totalActive, blockedCount, pendingTaskCount, score]
+          properties:
+            totalActive:
+              type: integer
+            blockedCount:
+              type: integer
+            pendingTaskCount:
+              type: integer
+            score:
+              type: integer
+        allergens:
+          type: object
+          required: [recipeCount, recipesWithAllergens, coveragePercent]
+          properties:
+            recipeCount:
+              type: integer
+            recipesWithAllergens:
+              type: integer
+            coveragePercent:
+              type: integer
+
+    ComplianceAuditEntry:
+      type: object
+      required: [id, type, title, occurredAt, status]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [temperature, cleaning, compliance]
+        title:
+          type: string
+        detail:
+          type: ["string", "null"]
+        actor:
+          type: ["string", "null"]
+        occurredAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pass, fail, completed, pending, resolved]
 
     # ─── FOOD COST CONFIDENCE ─────────────────────────────────────────────
     FoodCostConfidence:

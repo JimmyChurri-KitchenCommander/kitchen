@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useVenueStore } from "@/stores/venueStore";
 import { useVenueRole } from "@/hooks/use-venue-role";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Shield, Plus, ExternalLink, Clock, FlaskConical, AlertTriangle, Check,
   ChevronDown, ChevronRight, Pencil, X, Loader2, FileText,
@@ -26,6 +26,7 @@ import {
   useListComplianceTasks, useResolveComplianceTask, useGetComplianceSummary,
   useGetChemicalAlternatives, getGetChemicalAlternativesQueryKey,
   getListChemicalsQueryKey, getListComplianceTasksQueryKey, getGetComplianceSummaryQueryKey,
+  customFetch,
 } from "@workspace/api-client-react";
 import type { Chemical, ChemicalInput } from "@workspace/api-client-react";
 
@@ -46,6 +47,26 @@ const PPE_OPTIONS = [
   { value: "mask", label: "Mask" },
   { value: "boots", label: "Boots" },
 ];
+
+type ComplianceOverview = {
+  score: number;
+  status: "ready" | "watch" | "action_required";
+  totalIssues: number;
+  temperature: { equipmentCount: number; checksToday: number; unresolvedFails: number; overdueCount: number };
+  checklists: { total: number; overdue: number; byKind: Record<string, { total: number; overdue: number }> };
+  chemicals: { totalActive: number; blockedCount: number; pendingTaskCount: number; score: number };
+  allergens: { recipeCount: number; recipesWithAllergens: number; coveragePercent: number };
+};
+
+type ComplianceAuditEntry = {
+  id: string;
+  type: "temperature" | "cleaning" | "compliance";
+  title: string;
+  detail: string | null;
+  actor: string | null;
+  occurredAt: string;
+  status: "pass" | "fail" | "completed" | "pending" | "resolved";
+};
 
 function complianceBadge(status: string) {
   switch (status) {
@@ -103,6 +124,48 @@ function ComplianceSummaryWidget({ venueId }: { venueId: number }) {
               <p className="text-xl font-bold text-foreground">{data.totalActive}</p>
               <p className="text-xs text-muted-foreground">Active</p>
             </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ComplianceOverviewWidget({ overview }: { overview?: ComplianceOverview }) {
+  if (!overview) return null;
+  const tone = overview.status === "ready" ? "text-status-healthy" : overview.status === "watch" ? "text-amber-500" : "text-status-critical";
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Inspection Readiness</p>
+            <p className={cn("text-3xl font-bold", tone)}>{overview.score}%</p>
+          </div>
+          <Badge className={cn(
+            overview.status === "ready" ? "bg-green-100 text-green-700 border-green-200" :
+            overview.status === "watch" ? "bg-amber-100 text-amber-700 border-amber-200" :
+            "bg-red-100 text-red-700 border-red-200"
+          )}>
+            {overview.status === "ready" ? "Ready" : overview.status === "watch" ? "Watch" : "Action required"}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">Temperature</p>
+            <p className="font-bold text-foreground">{overview.temperature.unresolvedFails + overview.temperature.overdueCount} issues</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">Checklists</p>
+            <p className="font-bold text-foreground">{overview.checklists.overdue} overdue</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">MSDS</p>
+            <p className="font-bold text-foreground">{overview.chemicals.blockedCount} blocked</p>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">Allergens</p>
+            <p className="font-bold text-foreground">{overview.allergens.coveragePercent}% covered</p>
           </div>
         </div>
       </CardContent>
@@ -323,7 +386,7 @@ export default function CompliancePage() {
   const [showDialog, setShowDialog] = useState(false);
   const [editingChemical, setEditingChemical] = useState<Chemical | null>(null);
   const [form, setForm] = useState<ChemicalForm>(emptyForm());
-  const [activeTab, setActiveTab] = useState<"chemicals" | "tasks">("chemicals");
+  const [activeTab, setActiveTab] = useState<"overview" | "chemicals" | "tasks" | "audit">("overview");
 
   const { data: chemicals, isLoading: isLoadingChemicals } = useListChemicals(
     activeVenueId as number,
@@ -334,6 +397,18 @@ export default function CompliancePage() {
     activeVenueId as number,
     { query: { enabled: !!activeVenueId && canManage, queryKey: getListComplianceTasksQueryKey(activeVenueId as number) } },
   );
+
+  const { data: overview } = useQuery({
+    enabled: !!activeVenueId,
+    queryKey: ["/api/venues", activeVenueId, "compliance", "overview"],
+    queryFn: () => customFetch<ComplianceOverview>(`/api/venues/${activeVenueId}/compliance/overview`, { responseType: "json" }),
+  });
+
+  const { data: auditTrail = [] } = useQuery({
+    enabled: !!activeVenueId && activeTab === "audit",
+    queryKey: ["/api/venues", activeVenueId, "compliance", "audit-trail"],
+    queryFn: () => customFetch<ComplianceAuditEntry[]>(`/api/venues/${activeVenueId}/compliance/audit-trail?limit=60`, { responseType: "json" }),
+  });
 
   const createChemical = useCreateChemical();
   const updateChemical = useUpdateChemical();
@@ -453,10 +528,10 @@ export default function CompliancePage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Shield className="w-8 h-8 text-primary" />
-            Chemical Safety
+            Compliance Hub
           </h1>
           <p className="text-muted-foreground mt-1">
-            Dilution ratios, PPE requirements, and safety data sheets for every product in your kitchen.
+            Temperature, opening and closing checks, cleaning, MSDS actions, allergens, and audit history.
           </p>
         </div>
         {canManage && (
@@ -468,6 +543,7 @@ export default function CompliancePage() {
       </div>
 
       <ComplianceSummaryWidget venueId={activeVenueId} />
+      <ComplianceOverviewWidget overview={overview} />
 
       {/* Compliance alert banner */}
       {canManage && issueCount > 0 && (
@@ -496,7 +572,7 @@ export default function CompliancePage() {
       {/* Tabs (admin only sees Tasks tab) */}
       {canManage && (
         <div className="flex gap-1 border-b border-border">
-          {(["chemicals", "tasks"] as const).map(tab => (
+          {(["overview", "chemicals", "tasks", "audit"] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -507,7 +583,7 @@ export default function CompliancePage() {
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              {tab === "chemicals" ? "Chemicals" : (
+              {tab === "overview" ? "Overview" : tab === "chemicals" ? "Chemicals" : tab === "audit" ? "Audit Trail" : (
                 <span className="flex items-center gap-1.5">
                   Compliance Tasks
                   {pendingTasks.length > 0 && (
@@ -519,6 +595,51 @@ export default function CompliancePage() {
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Overview tab */}
+      {activeTab === "overview" && overview && (
+        <div className="space-y-3">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base">Today's compliance position</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">Opening / Closing / Equipment</p>
+                <p className="text-2xl font-bold text-foreground">{overview.checklists.overdue}</p>
+                <p className="text-xs text-muted-foreground">overdue checklist tasks</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">Temperature</p>
+                <p className="text-2xl font-bold text-foreground">{overview.temperature.unresolvedFails + overview.temperature.overdueCount}</p>
+                <p className="text-xs text-muted-foreground">failures or overdue checks</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">Chemical Safety</p>
+                <p className="text-2xl font-bold text-foreground">{overview.chemicals.pendingTaskCount}</p>
+                <p className="text-xs text-muted-foreground">MSDS actions pending</p>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">Allergen Register</p>
+                <p className="text-2xl font-bold text-foreground">{overview.allergens.coveragePercent}%</p>
+                <p className="text-xs text-muted-foreground">recipes with allergen data</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Button variant="outline" asChild>
+              <a href="/temperature">Temperature checks</a>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href="/cleaning">Opening / closing checklists</a>
+            </Button>
+            <Button variant="outline" onClick={() => setActiveTab("audit")}>
+              View audit trail
+            </Button>
+          </div>
         </div>
       )}
 
@@ -562,6 +683,43 @@ export default function CompliancePage() {
                 </details>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Audit trail tab */}
+      {activeTab === "audit" && (
+        <div className="space-y-3">
+          {auditTrail.length === 0 ? (
+            <Card className="border-dashed border-2 border-border">
+              <CardContent className="py-10 text-center text-muted-foreground">
+                No compliance audit events found for the last 30 days.
+              </CardContent>
+            </Card>
+          ) : (
+            auditTrail.map(entry => (
+              <Card key={entry.id} className="bg-card border-border">
+                <CardContent className="p-4 flex items-start gap-3">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full mt-2 shrink-0",
+                    entry.status === "fail" || entry.status === "pending" ? "bg-red-500" :
+                    entry.status === "resolved" || entry.status === "completed" || entry.status === "pass" ? "bg-green-500" :
+                    "bg-amber-500"
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm text-foreground">{entry.title}</p>
+                      <Badge variant="outline" className="text-xs capitalize">{entry.type}</Badge>
+                    </div>
+                    {entry.detail && <p className="text-xs text-muted-foreground mt-0.5">{entry.detail}</p>}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(entry.occurredAt).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      {entry.actor ? ` — ${entry.actor}` : ""}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
           )}
         </div>
       )}
