@@ -456,3 +456,5 @@ export async function calculatePrepPlan(venueId: number, input: PrepPlanInput) {
     assumptions,
   };
 }
+
+export type PrepPlanResult = Awaited<ReturnType<typeof calculatePrepPlan>>;

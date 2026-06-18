@@ -15,6 +15,8 @@ import { eq, and, isNotNull, ne, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { getVenueIfAccess } from "../middlewares/venueAuth";
 import { cleaningFrequencyToDays } from "./cleaning";
+import { enrichInventoryItem } from "../utils/inventoryStatus";
+import { computeSupplierCutoffs } from "../utils/supplierCutoffs";
 
 const router = Router();
 
@@ -26,44 +28,6 @@ type AttentionItem = {
   detail: string;
   href: string;
 };
-
-function computeStagnantDays(lastRestocked: Date | null): number {
-  if (!lastRestocked) return 0;
-  return Math.floor((Date.now() - new Date(lastRestocked).getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function computeStatus(currentStock: string, parLevel: string, shelfLifeDays: number | null, stagnantDays: number) {
-  const stock = parseFloat(currentStock);
-  const par = parseFloat(parLevel);
-  if (stock === 0) return "critical";
-  if (shelfLifeDays && stagnantDays >= shelfLifeDays * 0.8) return "expiry_risk";
-  if (stagnantDays >= 7) return "stagnant";
-  if (stock < par * 0.25) return "critical";
-  if (stock < par * 0.5) return "low_stock";
-  return "healthy";
-}
-
-function computeCutoffs(suppliers: typeof suppliersTable.$inferSelect[]) {
-  const now = new Date();
-  return suppliers
-    .filter((s) => s.orderCutoffTime && s.deliveryDays)
-    .map((s) => {
-      const [hours, minutes] = (s.orderCutoffTime as string).split(":").map(Number);
-      const cutoffToday = new Date(now);
-      cutoffToday.setHours(hours!, minutes!, 0, 0);
-      const minutesUntilCutoff = Math.floor((cutoffToday.getTime() - now.getTime()) / 60000);
-      const isUrgent = minutesUntilCutoff >= 0 && minutesUntilCutoff <= 120;
-      const timeStr = minutesUntilCutoff < 0 ? "cutoff passed"
-        : minutesUntilCutoff < 60 ? `${minutesUntilCutoff}m`
-        : `${Math.floor(minutesUntilCutoff / 60)}h ${minutesUntilCutoff % 60}m`;
-      return {
-        supplierId: s.id, supplierName: s.name, cutoffTime: s.orderCutoffTime as string,
-        deliveryDay: s.deliveryDays as string, minutesUntilCutoff: minutesUntilCutoff >= 0 ? minutesUntilCutoff : null,
-        isUrgent, message: `${s.name} order cutoff in ${timeStr}`,
-      };
-    })
-    .sort((a, b) => (a.minutesUntilCutoff ?? 9999) - (b.minutesUntilCutoff ?? 9999));
-}
 
 function isCleaningOverdue(task: typeof cleaningTasksTable.$inferSelect, now = new Date()): boolean {
   if (!task.isActive) return false;
@@ -114,11 +78,10 @@ router.get("/venues/:venueId/dashboard", requireAuth, async (req, res): Promise<
       .filter((w) => w.loggedAt >= today)
       .reduce((sum, w) => sum + parseFloat(w.costImpact), 0);
 
-    const enriched = rawItems.map((item) => {
-      const stagnantDays = computeStagnantDays(item.lastRestocked);
-      const status = computeStatus(item.currentStock, item.parLevel, item.shelfLifeDays, stagnantDays);
-      return { ...item, stagnantDays, status, stockNum: parseFloat(item.currentStock), costNum: parseFloat(item.averageCost) };
-    });
+    const enriched = rawItems.map((item) => ({
+      ...item,
+      ...enrichInventoryItem(item),
+    }));
 
     const inventoryValue = enriched.reduce((sum, i) => sum + i.stockNum * i.costNum, 0);
     const critical = enriched.filter((i) => i.status === "critical");
@@ -143,7 +106,7 @@ router.get("/venues/:venueId/dashboard", requireAuth, async (req, res): Promise<
     const toShape = (i: (typeof enriched)[0]) => ({
       id: i.id, venueId: i.venueId, supplierId: i.supplierId, supplierName: null as string | null,
       name: i.name, unit: i.unit, currentStock: i.stockNum, averageCost: i.costNum,
-      parLevel: parseFloat(i.parLevel), shelfLifeDays: i.shelfLifeDays, stagnantDays: i.stagnantDays,
+      parLevel: i.parLevel, shelfLifeDays: i.shelfLifeDays, stagnantDays: i.stagnantDays,
       status: i.status, lastRestocked: i.lastRestocked?.toISOString() ?? null, createdAt: i.createdAt.toISOString(),
     });
 
@@ -162,17 +125,17 @@ router.get("/venues/:venueId/dashboard", requireAuth, async (req, res): Promise<
       const recipeMap = new Map(recipes.filter(Boolean).map(r => [r!.id, r!.name]));
       prepAlerts = prepAlertItems.map(i => ({
         itemId: i.id, itemName: i.name, currentStock: i.stockNum,
-        parLevel: parseFloat(i.parLevel), unit: i.unit,
+        parLevel: i.parLevel, unit: i.unit,
         productionRecipeId: i.productionRecipeId!,
         productionRecipeName: recipeMap.get(i.productionRecipeId!) ?? "Unknown recipe",
       }));
     }
 
-    const supplierCutoffs = computeCutoffs(suppliers);
+    const supplierCutoffs = computeSupplierCutoffs(suppliers);
     const urgentCutoffCount = supplierCutoffs.filter(c => c.isUrgent).length;
-    const orderItems = enriched.filter(i => parseFloat(i.parLevel) > 0 && i.stockNum < parseFloat(i.parLevel));
+    const orderItems = enriched.filter(i => i.parLevel > 0 && i.stockNum < i.parLevel);
     const orderGrandTotal = orderItems.reduce((sum, item) => {
-      const suggestedQty = Math.max(0, parseFloat(item.parLevel) - item.stockNum);
+      const suggestedQty = Math.max(0, item.parLevel - item.stockNum);
       return sum + suggestedQty * item.costNum;
     }, 0);
 

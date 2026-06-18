@@ -214,6 +214,7 @@ import DemoKitchenPage from "./pages/demo-kitchen";
 import InviteGatePage from "./pages/invite-gate";
 import AppLayout from "./components/layout/AppLayout";
 import DashboardPage from "./pages/dashboard";
+import CommandCentrePage from "./pages/command-centre";
 import VenuesPage from "./pages/venues";
 import InventoryPage from "./pages/inventory";
 import InventoryFormPage from "./pages/inventory-form";
@@ -267,7 +268,7 @@ function HomeRedirect() {
   return (
     <>
       <Show when="signed-in">
-        <Redirect to="/dashboard" />
+        <Redirect to="/command-centre" />
       </Show>
       <Show when="signed-out">
         <LandingPage />
@@ -357,9 +358,9 @@ function OnboardingRouteInner() {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    if (isDemoMode) { setLocation("/dashboard"); return; }
+    if (isDemoMode) { setLocation("/command-centre"); return; }
     if (!venues) return;
-    if (venues.some(v => v.onboardingCompleted)) setLocation("/dashboard");
+    if (venues.some(v => v.onboardingCompleted)) setLocation("/command-centre");
   }, [venues, isDemoMode, setLocation]);
 
   if (isDemoMode) return null;
@@ -432,6 +433,7 @@ function ClerkProviderWithRoutes() {
             {/* Onboarding — auth-gated, no AppLayout, no onboarding redirect loop */}
             <Route path="/onboarding" component={OnboardingRouteInner} />
 
+            <Route path="/command-centre" component={() => <ProtectedRoute component={CommandCentrePage} />} />
             <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
             <Route path="/kitchen-brief" component={() => <ProtectedRoute component={KitchenBriefPage} />} />
             <Route path="/venues" component={() => <ProtectedRoute component={VenuesPage} />} />
