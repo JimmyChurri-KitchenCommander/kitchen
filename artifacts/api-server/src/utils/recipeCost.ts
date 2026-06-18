@@ -10,6 +10,7 @@ async function computeComponentsCost(recipeId: number, depth: number, visited: S
   const components = await db
     .select({
       qty: recipeComponentsTable.quantity,
+      unit: recipeComponentsTable.unit,
       yf: recipeComponentsTable.yieldFactor,
       prepRecipeId: recipeComponentsTable.prepRecipeId,
     })
