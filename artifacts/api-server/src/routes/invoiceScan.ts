@@ -8,8 +8,6 @@ import {
   priceHistoryTable,
   suppliersTable,
 } from "@workspace/db";
-
-import { priceHistoryTable } from "@workspace/db/schema/priceHistory";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
