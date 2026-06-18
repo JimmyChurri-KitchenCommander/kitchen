@@ -59,6 +59,17 @@ const FREQUENCIES = [
   { value: "quarterly", label: "Quarterly" },
 ];
 
+const TASK_KINDS = [
+  { value: "all", label: "All" },
+  { value: "cleaning", label: "Cleaning" },
+  { value: "opening", label: "Opening" },
+  { value: "closing", label: "Closing" },
+  { value: "equipment", label: "Equipment" },
+];
+
+type CleaningTaskWithKind = CleaningTask & { taskKind?: "cleaning" | "opening" | "closing" | "equipment" };
+type CleaningTaskInputWithKind = CleaningTaskInput & { taskKind?: "cleaning" | "opening" | "closing" | "equipment" };
+
 function frequencyColor(freq: string) {
   const map: Record<string, string> = {
     daily: "bg-blue-100 text-blue-700",
@@ -70,10 +81,11 @@ function frequencyColor(freq: string) {
   return map[freq] ?? "bg-slate-100 text-slate-600";
 }
 
-const emptyForm = (): CleaningTaskInput => ({
+const emptyForm = (): CleaningTaskInputWithKind => ({
   title: "",
   area: "kitchen",
   frequency: "daily",
+  taskKind: "cleaning",
   assignedTo: "",
   notes: "",
   isActive: true,
@@ -86,13 +98,14 @@ export default function CleaningRosterPage() {
 
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<CleaningTask | null>(null);
-  const [form, setForm] = useState<CleaningTaskInput>(emptyForm());
+  const [form, setForm] = useState<CleaningTaskInputWithKind>(emptyForm());
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [completingTask, setCompletingTask] = useState<CleaningTask | null>(null);
   const [completedBy, setCompletedBy] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [filterFreq, setFilterFreq] = useState<string>("all");
+  const [filterKind, setFilterKind] = useState<string>("all");
 
   const { data: tasks = [], isLoading } = useListCleaningTasks(activeVenueId ?? 0, {
     query: { enabled: !!activeVenueId, queryKey: getListCleaningTasksQueryKey(activeVenueId ?? 0) },
@@ -112,7 +125,9 @@ export default function CleaningRosterPage() {
   const deleteTask = useDeleteCleaningTask({ mutation: { onSuccess: () => { invalidateTasks(); toast({ title: "Task removed" }); } } });
   const completeTask = useCompleteCleaningTask({ mutation: { onSuccess: () => { invalidateTasks(); invalidateLogs(); setShowCompleteDialog(false); setCompletedBy(""); setCompletionNotes(""); toast({ title: "Marked as clean" }); } } });
 
-  const filteredTasks = filterFreq === "all" ? tasks : tasks.filter((t) => t.frequency === filterFreq);
+  const allTasks = tasks as CleaningTaskWithKind[];
+  const filteredByKind = filterKind === "all" ? allTasks : allTasks.filter((t) => (t.taskKind ?? "cleaning") === filterKind);
+  const filteredTasks = filterFreq === "all" ? filteredByKind : filteredByKind.filter((t) => t.frequency === filterFreq);
   const overdueTasks = filteredTasks.filter((t) => t.isOverdue && t.isActive);
   const upToDateTasks = filteredTasks.filter((t) => !t.isOverdue && t.isActive);
   const inactiveTasks = filteredTasks.filter((t) => !t.isActive);
@@ -129,6 +144,7 @@ export default function CleaningRosterPage() {
       title: task.title,
       area: task.area as CleaningTaskInput["area"],
       frequency: task.frequency as CleaningTaskInput["frequency"],
+      taskKind: ((task as CleaningTaskWithKind).taskKind ?? "cleaning"),
       assignedTo: task.assignedTo ?? "",
       notes: task.notes ?? "",
       isActive: task.isActive,
@@ -154,15 +170,15 @@ export default function CleaningRosterPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!activeVenueId) return;
-    const payload: CleaningTaskInput = {
+    const payload: CleaningTaskInputWithKind = {
       ...form,
       assignedTo: form.assignedTo || undefined,
       notes: form.notes || undefined,
     };
     if (editingTask) {
-      updateTask.mutate({ venueId: activeVenueId, taskId: editingTask.id, data: payload });
+      updateTask.mutate({ venueId: activeVenueId, taskId: editingTask.id, data: payload as CleaningTaskInput });
     } else {
-      createTask.mutate({ venueId: activeVenueId, data: payload });
+      createTask.mutate({ venueId: activeVenueId, data: payload as CleaningTaskInput });
     }
   }
 
@@ -184,7 +200,7 @@ export default function CleaningRosterPage() {
     );
   }
 
-  const TaskCard = ({ task }: { task: CleaningTask }) => (
+  const TaskCard = ({ task }: { task: CleaningTaskWithKind }) => (
     <div
       className={cn(
         "bg-card border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors",
@@ -209,6 +225,9 @@ export default function CleaningRosterPage() {
             </span>
             <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", frequencyColor(task.frequency))}>
               {FREQUENCIES.find((f) => f.value === task.frequency)?.label ?? task.frequency}
+            </span>
+            <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-secondary text-muted-foreground">
+              {TASK_KINDS.find((k) => k.value === (task.taskKind ?? "cleaning"))?.label ?? "Cleaning"}
             </span>
             {task.assignedTo && (
               <span className="text-xs text-muted-foreground">
@@ -296,6 +315,24 @@ export default function CleaningRosterPage() {
             Add Task
           </Button>
         </div>
+      </div>
+
+      {/* Checklist type filter */}
+      <div className="flex gap-2 flex-wrap">
+        {TASK_KINDS.map((kind) => (
+          <button
+            key={kind.value}
+            onClick={() => setFilterKind(kind.value)}
+            className={cn(
+              "px-3 py-1.5 rounded-full text-sm font-medium transition-colors",
+              filterKind === kind.value
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {kind.label}
+          </button>
+        ))}
       </div>
 
       {/* Frequency filter */}
@@ -449,6 +486,18 @@ export default function CleaningRosterPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Checklist Type</Label>
+              <Select value={form.taskKind ?? "cleaning"} onValueChange={(v) => setForm({ ...form, taskKind: v as CleaningTaskInputWithKind["taskKind"] })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TASK_KINDS.filter((kind) => kind.value !== "all").map((kind) => (
+                    <SelectItem key={kind.value} value={kind.value}>{kind.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">

@@ -14,6 +14,7 @@ import {
 import { eq, and, isNotNull, ne, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 import { getVenueIfAccess } from "../middlewares/venueAuth";
+import { cleaningFrequencyToDays } from "./cleaning";
 
 const router = Router();
 
@@ -67,13 +68,8 @@ function computeCutoffs(suppliers: typeof suppliersTable.$inferSelect[]) {
 function isCleaningOverdue(task: typeof cleaningTasksTable.$inferSelect, now = new Date()): boolean {
   if (!task.isActive) return false;
   if (!task.lastCompletedAt) return true;
-  const elapsedHours = (now.getTime() - task.lastCompletedAt.getTime()) / 36e5;
-  switch (task.frequency) {
-    case "daily": return elapsedHours >= 24;
-    case "weekly": return elapsedHours >= 24 * 7;
-    case "monthly": return elapsedHours >= 24 * 31;
-    default: return false;
-  }
+  const elapsedDays = (now.getTime() - task.lastCompletedAt.getTime()) / 86_400_000;
+  return elapsedDays >= cleaningFrequencyToDays(task.frequency);
 }
 
 function attentionHeadline(count: number): string {

@@ -170,7 +170,7 @@ function HeadChefAttentionCard({
               <p className="text-sm font-bold text-foreground">{decisionLayer.ordersSummary?.totalItems ?? 0} items</p>
             </div>
           </Link>
-          <Link href="/temperature">
+          <Link href="/compliance">
             <div className="rounded-lg border border-border bg-background px-3 py-2">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Compliance</p>
               <p className="text-sm font-bold text-foreground">{decisionLayer.complianceSummary?.totalIssueCount ?? 0} issues</p>
