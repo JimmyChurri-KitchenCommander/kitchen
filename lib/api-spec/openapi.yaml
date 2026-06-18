@@ -5897,7 +5897,7 @@ components:
 
     RecipeComponent:
       type: object
-      required: [id, menuRecipeId, prepRecipeId, prepRecipeName, quantity, unit, yieldFactor, prepYield, prepPortionCost, totalCost]
+      required: [id, menuRecipeId, prepRecipeId, prepRecipeName, quantity, unit, yieldFactor, grossQuantity, prepYield, prepPortionCost, totalCost, unitConverted]
       properties:
         id:
           type: integer
@@ -5913,6 +5913,9 @@ components:
           type: string
         yieldFactor:
           type: number
+        grossQuantity:
+          type: number
+          description: Gross component quantity after applying yield factor
         prepYield:
           type: number
         prepYieldUnit:
@@ -5923,6 +5926,12 @@ components:
         totalCost:
           type: number
           description: Contribution of this component to the menu recipe's total cost
+        unitConverted:
+          type: boolean
+          description: True when the component quantity was converted to the prep recipe yield unit for costing
+        conversionNote:
+          type: ["string", "null"]
+          description: Human-readable unit conversion note when conversion was applied
 
     RecipeComponentInput:
       type: object

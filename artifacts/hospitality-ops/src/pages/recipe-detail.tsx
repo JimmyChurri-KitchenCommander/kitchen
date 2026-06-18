@@ -12,6 +12,7 @@ import {
   useAddRecipeComponent,
   useDeleteRecipeComponent,
   useCreateInventoryItem,
+  useMarkRecipeReviewed,
   getGetRecipeQueryKey,
   getListInventoryQueryKey,
   getListRecipesQueryKey,
@@ -64,6 +65,9 @@ type EnrichedComponent = {
   prepYieldUnit: string | null;
   prepPortionCost: number;
   totalCost: number;
+  grossQuantity?: number;
+  unitConverted?: boolean;
+  conversionNote?: string | null;
 };
 
 function PrepComponentsSection({
@@ -75,6 +79,7 @@ function PrepComponentsSection({
   const [prepRecipeId, setPrepRecipeId] = useState<string>("");
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("g");
+  const [yieldPct, setYieldPct] = useState("100");
 
   const { data: prepRecipes } = useListRecipes(
     venueId,
@@ -102,14 +107,15 @@ function PrepComponentsSection({
       toast({ title: "Pick a prep recipe and enter quantity + unit", variant: "destructive" });
       return;
     }
+    const yieldFactor = Math.min(100, Math.max(1, parseFloat(yieldPct) || 100)) / 100;
     addComponent.mutate(
-      { venueId, recipeId, data: { prepRecipeId: pid, quantity: q, unit } },
+      { venueId, recipeId, data: { prepRecipeId: pid, quantity: q, unit, yieldFactor } },
       {
         onSuccess: () => {
           toast({ title: "Component linked" });
           invalidate();
           setOpen(false);
-          setPrepRecipeId(""); setQty(""); setUnit("g");
+          setPrepRecipeId(""); setQty(""); setUnit("g"); setYieldPct("100");
         },
         onError: (err: any) => toast({ title: "Failed to link", description: err?.message, variant: "destructive" }),
       }
@@ -152,7 +158,7 @@ function PrepComponentsSection({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Quantity</Label>
                   <Input type="number" step="0.01" value={qty} onChange={e => setQty(e.target.value)} placeholder="e.g. 50" />
@@ -160,6 +166,10 @@ function PrepComponentsSection({
                 <div>
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Unit</Label>
                   <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="g, ml, ptn" />
+                </div>
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Yield %</Label>
+                  <Input type="number" min="1" max="100" step="1" value={yieldPct} onChange={e => setYieldPct(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -188,6 +198,9 @@ function PrepComponentsSection({
                   <p className="text-xs text-muted-foreground font-mono mt-0.5">
                     {c.quantity} {c.unit} · ${c.prepPortionCost.toFixed(3)} / {c.prepYieldUnit || "unit"}
                   </p>
+                  {c.conversionNote && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{c.conversionNote}</p>
+                  )}
                 </div>
                 <div className="w-20 text-right font-medium text-foreground">${c.totalCost.toFixed(2)}</div>
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
@@ -288,6 +301,7 @@ export default function RecipeDetailPage() {
   const logPrep = useLogRecipePrep();
   const adaptRecipe = useAdaptRecipe();
   const createItem = useCreateInventoryItem();
+  const markReviewed = useMarkRecipeReviewed();
 
   const TODAY = new Date().toISOString().slice(0, 10);
   const { data: todayTasks = [] } = useListPrepTasks(
@@ -422,6 +436,17 @@ export default function RecipeDetailPage() {
     });
   };
 
+  const handleMarkReviewed = () => {
+    markReviewed.mutate({ venueId: activeVenueId, recipeId }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetRecipeQueryKey(activeVenueId, recipeId) });
+        queryClient.invalidateQueries({ queryKey: getListRecipesQueryKey(activeVenueId) });
+        toast({ title: "Recipe reviewed", description: "Costing and prep details are marked as checked." });
+      },
+      onError: (err: unknown) => toast({ title: "Could not mark reviewed", description: err instanceof Error ? err.message : "Try again", variant: "destructive" }),
+    });
+  };
+
   const isHighFC = recipe.foodCostPercent && recipe.foodCostPercent > 35;
   const isAdapted = !!recipe.parentRecipeId;
   const availableCount = recipe.ingredientAvailability?.filter(i => i.inStock).length ?? 0;
@@ -491,6 +516,18 @@ export default function RecipeDetailPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant={recipe.reviewStale ? "default" : "outline"}
+            className={recipe.reviewStale ? "bg-primary text-primary-foreground" : ""}
+            onClick={handleMarkReviewed}
+            disabled={markReviewed.isPending}
+          >
+            {markReviewed.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              : <CheckCircle2 className="w-4 h-4 mr-2" />}
+            Mark reviewed
+          </Button>
+
           {/* Adapt button */}
           <Button
             variant="outline"
@@ -638,6 +675,19 @@ export default function RecipeDetailPage() {
             ) : (
               <span className="font-semibold">All {totalCount} ingredients in stock — ready to run.</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {recipe.reviewStale && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg border text-sm bg-amber-50 border-amber-200 text-amber-800">
+          <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+          <div>
+            <span className="font-semibold">Recipe review needed.</span>{" "}
+            {recipe.daysSinceReview == null
+              ? "This recipe has never been checked by the team."
+              : `Last reviewed ${recipe.daysSinceReview} days ago.`}
+            {" "}Check yield, allergens, components, and selling price, then mark it reviewed.
           </div>
         </div>
       )}
@@ -877,8 +927,18 @@ export default function RecipeDetailPage() {
       )}
 
       {/* ── Ingredient Cost Breakdown ── */}
-      {recipe.ingredients.length > 0 && recipe.totalCost > 0 && (() => {
-        const sorted = [...recipe.ingredients].sort((a, b) => b.totalCost - a.totalCost);
+      {(recipe.ingredients.length > 0 || (recipe.components?.length ?? 0) > 0) && recipe.totalCost > 0 && (() => {
+        const componentDrivers = ((recipe.components ?? []) as EnrichedComponent[]).map(c => ({
+          id: `component-${c.id}`,
+          label: `Prep: ${c.prepRecipeName}`,
+          totalCost: c.totalCost,
+        }));
+        const ingredientDrivers = recipe.ingredients.map(ing => ({
+          id: `ingredient-${ing.id}`,
+          label: ing.itemName,
+          totalCost: ing.totalCost,
+        }));
+        const sorted = [...ingredientDrivers, ...componentDrivers].sort((a, b) => b.totalCost - a.totalCost);
         const top = sorted.slice(0, 5);
         const barColors = [
           "bg-primary",
@@ -905,7 +965,7 @@ export default function RecipeDetailPage() {
                   return (
                     <div key={ing.id}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-foreground truncate max-w-[60%]">{ing.itemName}</span>
+                        <span className="text-xs font-medium text-foreground truncate max-w-[60%]">{ing.label}</span>
                         <span className="text-xs text-muted-foreground font-mono">${ing.totalCost.toFixed(2)} · {pct.toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -1248,7 +1308,7 @@ export default function RecipeDetailPage() {
 
                   <div className="px-4 py-3 flex items-center bg-secondary/30">
                     <div className="w-2.5 mr-2 shrink-0" />
-                    <div className="flex-1 text-sm font-semibold text-foreground">Total ingredient cost</div>
+                    <div className="flex-1 text-sm font-semibold text-foreground">Total recipe cost</div>
                     <div className="hidden md:flex items-center">
                       <span className="w-32" />
                       <span className="w-16 ml-2" />

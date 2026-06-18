@@ -13,6 +13,7 @@ import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess } from "../middlewares/venueAuth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { applyInventoryMovement } from "../services/inventoryLedger";
+import { markRecipeCostsUpdatedForInventoryItems } from "../utils/recipeCostFreshness";
 
 const router = Router();
 
@@ -254,6 +255,7 @@ router.post("/venues/:venueId/invoices/confirm", requireAuth, async (req, res): 
 
     // Optionally apply costs to inventory
     let updatedCount = 0;
+    const costChangedItemIds: number[] = [];
     if (body.applyToInventory) {
       const supplier = resolvedSupplierId
         ? (await db.select().from(suppliersTable).where(eq(suppliersTable.id, resolvedSupplierId)))[0]
@@ -277,6 +279,9 @@ router.post("/venues/:venueId/invoices/confirm", requireAuth, async (req, res): 
           .set({ averageCost: String(newCost), updatedAt: new Date() })
           .where(eq(inventoryItemsTable.id, item.inventoryItemId));
 
+        if (Math.abs(newCost - oldCost) > 0.0001) {
+          costChangedItemIds.push(item.inventoryItemId);
+        }
         if (supplier && Math.abs(newCost - oldCost) > 0.0001) {
           const changePercent = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : 0;
           await db.insert(priceHistoryTable).values({
@@ -290,6 +295,7 @@ router.post("/venues/:venueId/invoices/confirm", requireAuth, async (req, res): 
 
         updatedCount++;
       }
+      await markRecipeCostsUpdatedForInventoryItems(venueId, costChangedItemIds);
     }
 
     res.status(201).json({
@@ -359,6 +365,9 @@ router.post("/venues/:venueId/invoices/:invoiceId/apply", requireAuth, async (re
         .set({ averageCost: item.unitPrice, updatedAt: new Date() })
         .where(eq(inventoryItemsTable.id, item.inventoryItemId));
 
+      if (Math.abs(newCost - oldCost) > 0.0001) {
+        await markRecipeCostsUpdatedForInventoryItems(venueId, [item.inventoryItemId]);
+      }
       if (supplier && Math.abs(newCost - oldCost) > 0.0001) {
         const changePercent = oldCost > 0 ? ((newCost - oldCost) / oldCost) * 100 : 0;
         await db.insert(priceHistoryTable).values({
@@ -494,6 +503,9 @@ router.post("/venues/:venueId/invoices/:invoiceId/receive", requireAuth, async (
       });
 
       // Log supplier price change
+      if (Math.abs(newCost - oldCost) > 0.0001) {
+        await markRecipeCostsUpdatedForInventoryItems(venueId, [lineItem.inventoryItemId]);
+      }
       if (supplier && Math.abs(newCost - oldCost) > 0.0001) {
         const changePercent =
           oldCost > 0

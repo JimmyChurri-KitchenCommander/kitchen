@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/auth";
 import { assertVenueAccess, assertVenueAdmin } from "../middlewares/venueAuth";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { reconcileInventoryStock } from "../services/inventoryLedger";
+import { markRecipeCostsUpdatedForInventoryItems } from "../utils/recipeCostFreshness";
 
 const router = Router();
 
@@ -337,8 +338,14 @@ router.patch("/venues/:venueId/inventory/:itemId", requireAuth, async (req, res)
         expiresAt: raw.expiresAt ?? null,
         metadata: { source: "inventory_update" },
       });
+      if (averageCost !== undefined) {
+        await markRecipeCostsUpdatedForInventoryItems(venueId, [itemId]);
+      }
       res.json(enrichItem(movement.item));
       return;
+    }
+    if (averageCost !== undefined) {
+      await markRecipeCostsUpdatedForInventoryItems(venueId, [itemId]);
     }
     res.json(enrichItem(raw));
   } catch (err) {

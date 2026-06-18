@@ -8,6 +8,7 @@ import { computeRecipeCosts, computeRecipeTotalCost, computeRecipeComponents } f
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { applyInventoryMovements, type InventoryTransactionType } from "../services/inventoryLedger";
+import { bumpRecipeVersion, markRecipeCostsUpdatedForRecipes } from "../utils/recipeCostFreshness";
 
 const router = Router();
 
@@ -201,9 +202,13 @@ router.patch("/venues/:venueId/recipes/:recipeId", requireAuth, async (req, res)
     if (body["allergens"] !== undefined && Array.isArray(body["allergens"])) {
       updates["allergens"] = body["allergens"];
     }
+    updates["recipeVersion"] = sql`${recipesTable.recipeVersion} + 1`;
+    updates["lastReviewedAt"] = null;
+    updates["lastCostUpdateAt"] = new Date();
     const [recipe] = await db.update(recipesTable).set(updates)
       .where(and(eq(recipesTable.id, recipeId), eq(recipesTable.venueId, venueId))).returning();
     if (!recipe) { res.status(404).json({ error: "Recipe not found" }); return; }
+    await markRecipeCostsUpdatedForRecipes(venueId, [recipeId]);
     const totalCost = await computeRecipeTotalCost(recipeId);
     res.json(parseRecipe(recipe, totalCost));
   } catch (err) {
@@ -450,6 +455,8 @@ router.post("/venues/:venueId/recipes/:recipeId/ingredients", requireAuth, async
     const [ingr] = await db.insert(recipeIngredientsTable).values({
       recipeId, inventoryItemId: Number(inventoryItemId), quantity: String(quantity), unit: unit as string, yieldFactor: yf,
     }).returning();
+    await bumpRecipeVersion(venueId, recipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [recipeId]);
     const [item] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, Number(inventoryItemId)));
     let unitCost = item ? parseFloat(item.averageCost) : 0;
     let isInHousePrepped = false;
@@ -504,6 +511,8 @@ router.patch("/venues/:venueId/recipes/:recipeId/ingredients/:ingredientId", req
     const [ingr] = await db.update(recipeIngredientsTable).set(updates)
       .where(and(eq(recipeIngredientsTable.id, ingredientId), eq(recipeIngredientsTable.recipeId, recipeId))).returning();
     if (!ingr) { res.status(404).json({ error: "Ingredient not found" }); return; }
+    await bumpRecipeVersion(venueId, recipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [recipeId]);
     const [item] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, ingr.inventoryItemId));
     let unitCost = item ? parseFloat(item.averageCost) : 0;
     let isInHousePrepped = false; let productionRecipeName: string | null = null;
@@ -541,6 +550,8 @@ router.delete("/venues/:venueId/recipes/:recipeId/ingredients/:ingredientId", re
     if (!owned) { res.status(404).json({ error: "Ingredient not found" }); return; }
     await db.delete(recipeIngredientsTable)
       .where(and(eq(recipeIngredientsTable.id, ingredientId), eq(recipeIngredientsTable.recipeId, recipeId)));
+    await bumpRecipeVersion(venueId, recipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [recipeId]);
     res.status(204).send();
   } catch (err) {
     req.log.error({ err }, "Failed to delete ingredient");
@@ -860,6 +871,8 @@ router.post("/venues/:venueId/recipes/:recipeId/components", requireAuth, async 
       quantity: String(quantity), unit: unit as string,
       yieldFactor: body["yieldFactor"] !== undefined ? String(body["yieldFactor"]) : "1",
     }).returning();
+    await bumpRecipeVersion(venueId, menuRecipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [menuRecipeId]);
     const enriched = await computeRecipeComponents(menuRecipeId);
     const created = enriched.find(c => c.id === component!.id) ?? null;
     res.status(201).json(created);
@@ -896,6 +909,8 @@ router.patch("/venues/:venueId/recipes/:recipeId/components/:componentId", requi
       .where(eq(recipeComponentsTable.id, componentId))
       .returning();
     if (!updated) { res.status(404).json({ error: "Component not found" }); return; }
+    await bumpRecipeVersion(venueId, menuRecipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [menuRecipeId]);
     const enriched = await computeRecipeComponents(menuRecipeId);
     const out = enriched.find(c => c.id === componentId) ?? null;
     res.json(out);
@@ -924,6 +939,8 @@ router.delete("/venues/:venueId/recipes/:recipeId/components/:componentId", requ
     if (!owned) { res.status(404).json({ error: "Component not found" }); return; }
     await db.delete(recipeComponentsTable)
       .where(eq(recipeComponentsTable.id, componentId));
+    await bumpRecipeVersion(venueId, menuRecipeId);
+    await markRecipeCostsUpdatedForRecipes(venueId, [menuRecipeId]);
     res.status(204).send();
   } catch (err) {
     req.log.error({ err }, "Failed to delete recipe component");
