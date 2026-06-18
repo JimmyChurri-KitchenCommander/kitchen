@@ -46,6 +46,8 @@ tags:
     description: Compliance overview and audit history
   - name: assistant
     description: Structured kitchen context for AI assistant and briefing
+  - name: command-centre
+    description: Chef Command Centre operational orchestration
   - name: stocktakes
     description: Monthly stocktaking
   - name: menus
@@ -4043,6 +4045,73 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/KitchenAssistantContext"
+
+  /venues/{venueId}/command-centre:
+    get:
+      operationId: getCommandCentre
+      tags: [command-centre]
+      summary: Unified Chef Command Centre operational view
+      description: Orchestrates dashboard signals, prep plan, dishes at risk, merged ordering, compliance, food cost, and waste into one response.
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: targetDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: lunchCovers
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: dinnerCovers
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: covers
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Command Centre view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandCentreView"
+
+  /venues/{venueId}/command-centre/morning-run:
+    post:
+      operationId: runCommandCentreMorningWorkflow
+      tags: [command-centre]
+      summary: Run morning workflow for today's service
+      description: Calculates prep plan from covers, merges ordering, computes dishes at risk and service readiness, and optionally creates prep tasks.
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandCentreMorningRunInput"
+      responses:
+        "200":
+          description: Updated Command Centre view after morning workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandCentreView"
 
   /venues/{venueId}/food-cost-confidence:
     get:
@@ -8159,3 +8228,143 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantBriefingAnswer"
+
+    CommandCentreMorningRunInput:
+      type: object
+      required: [servicePeriods]
+      properties:
+        targetDate:
+          type: string
+          format: date
+        servicePeriods:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrepPlanServicePeriod"
+        createPrepTasks:
+          type: boolean
+          default: true
+        prepTaskSelection:
+          type: string
+          enum: [all, gaps_only]
+          default: gaps_only
+
+    CommandCentreView:
+      type: object
+      required: [meta, serviceReadiness, attention, dishesAtRisk, prepToday, orderToday, compliance, foodCost, waste, plan]
+      properties:
+        meta:
+          type: object
+          required: [venueId, venueName, generatedAt, targetDate, totalCovers, servicePeriods, planApplied, menuId, menuName]
+          properties:
+            venueId:
+              type: integer
+            venueName:
+              type: string
+            generatedAt:
+              type: string
+              format: date-time
+            targetDate:
+              type: string
+              format: date
+            totalCovers:
+              type: integer
+              nullable: true
+            servicePeriods:
+              type: array
+              items:
+                $ref: "#/components/schemas/PrepPlanServicePeriod"
+            planApplied:
+              type: boolean
+            menuId:
+              type: integer
+              nullable: true
+            menuName:
+              type: string
+              nullable: true
+        serviceReadiness:
+          type: object
+          required: [score, colour, label, headline, factors, coversRequiredForAccuracy]
+          properties:
+            score:
+              type: integer
+            colour:
+              type: string
+              enum: [green, amber, red]
+            label:
+              type: string
+              enum: [ready, attention_required, high_risk]
+            headline:
+              type: string
+            coversRequiredForAccuracy:
+              type: boolean
+            factors:
+              type: array
+              items:
+                type: object
+                required: [key, label, score, weight, message]
+                properties:
+                  key:
+                    type: string
+                  label:
+                    type: string
+                  score:
+                    type: integer
+                  weight:
+                    type: integer
+                  message:
+                    type: string
+        attention:
+          $ref: "#/components/schemas/DashboardAttentionSummary"
+        dishesAtRisk:
+          type: array
+          items:
+            type: object
+            required: [recipeId, recipeName, portionsRequired, portionsAtRisk, status, blockingItems, href]
+            properties:
+              recipeId:
+                type: integer
+              recipeName:
+                type: string
+              portionsRequired:
+                type: number
+              portionsAtRisk:
+                type: number
+              status:
+                type: string
+                enum: [ready, ingredient_shortage, may_run_out, cannot_produce]
+              blockingItems:
+                type: array
+                items:
+                  type: object
+                  required: [name, gapQuantity, unit, stockType]
+                  properties:
+                    name:
+                      type: string
+                    gapQuantity:
+                      type: number
+                    unit:
+                      type: string
+                    stockType:
+                      type: string
+                      enum: [raw, prep]
+              href:
+                type: string
+        prepToday:
+          type: object
+        orderToday:
+          type: object
+        compliance:
+          type: object
+        foodCost:
+          type: object
+        waste:
+          type: object
+        plan:
+          oneOf:
+            - $ref: "#/components/schemas/PrepPlanResult"
+            - type: "null"
+        morningRun:
+          type: object
+          properties:
+            prepTasksCreated:
+              type: integer

@@ -15,6 +15,7 @@ import {
   LineChart, Settings, Building, Menu, X, LogOut, Users,
   ShoppingCart, ClipboardList, Sparkles, ClipboardCheck,
   UtensilsCrossed, Thermometer, Archive, ChevronDown,
+  Shield, Zap, Layers, GraduationCap, BookOpen, Brain, Gauge,
   Shield, Zap, Layers, GraduationCap, BookOpen, Brain,
   Scissors, Fish, Leaf, Droplets, Flame, Snowflake,
   FlaskConical, Atom, Scale, Wrench, FileText,
@@ -54,6 +55,8 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ChefHat,
     colorClass: "text-orange-500",
     items: [
+      { href: "/command-centre", label: "Command Centre", icon: Gauge },
+      { href: "/dashboard",        label: "Dashboard",       icon: LayoutDashboard },
       { href: "/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
       { href: "/kitchen-brief",  label: "Kitchen Brief", icon: Brain },
       { href: "/service-mode",      label: "Service Mode", icon: Zap,             moduleId: "prep-board" },
@@ -289,7 +292,7 @@ function SidebarContent({ isMobile, onNavigate }: { isMobile: boolean; onNavigat
     <>
       {/* Dashboard shortcut */}
       <div className={cn("px-3 pb-2", isMobile ? "pt-2" : "pt-0 mt-2")}>
-        <Link href="/dashboard">
+        <Link href="/command-centre">
           <div
             onClick={onNavigate}
             className={cn(
@@ -421,7 +424,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Mobile header */}
         <div className="md:hidden flex items-center justify-between px-4 py-2.5 border-b border-border bg-card z-50 sticky top-0">
-          <Link href="/dashboard">
+          <Link href="/command-centre">
             <div className="flex items-center gap-2 touch-manipulation active:opacity-70 transition-opacity">
               <AppIcon className="w-8 h-8 flex-shrink-0" />
               <span className="font-bold text-[15px] tracking-tight leading-none">Kitchen Command</span>
@@ -453,7 +456,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Desktop sidebar */}
         <aside className="hidden md:flex md:w-60 md:flex-col md:flex-shrink-0 bg-sidebar border-r border-sidebar-border min-h-0">
-          <Link href="/dashboard">
+          <Link href="/command-centre">
             <div className="px-4 py-3.5 flex items-center gap-3 hover:opacity-80 transition-opacity border-b border-sidebar-border/50 mb-1">
               <AppIcon className="w-9 h-9 shrink-0" />
               <div className="min-w-0">
