@@ -77,6 +77,7 @@ begin
       add constraint inventory_ledger_entries_transaction_type_check
       check (transaction_type in (
         'PURCHASE',
+        'PURCHASE_RECEIPT',
         'PRODUCTION_INPUT',
         'PRODUCTION_OUTPUT',
         'SALE',

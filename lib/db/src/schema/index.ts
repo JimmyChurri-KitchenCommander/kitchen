@@ -19,3 +19,4 @@ export * from "./dataRetention";
 export * from "./userProfiles";
 export * from "./handoverNotes";
 export * from "./purchaseOrders";
+export * from "./production";

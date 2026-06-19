@@ -4,9 +4,9 @@
 
 -- Purchase Order Receiving Table
 -- Tracks individual received items within a purchase order with ledger integration
-CREATE TABLE IF NOT EXISTS purchase_order_receiving (
+CREATE TABLE IF NOT EXISTS public.purchase_order_receiving (
   id SERIAL PRIMARY KEY,
-  purchase_order_item_id INTEGER NOT NULL REFERENCES purchase_order_items(id) ON DELETE CASCADE,
+  purchase_order_item_id INTEGER NOT NULL REFERENCES public.purchase_order_items(id) ON DELETE CASCADE,
   received_quantity NUMERIC(10,3) NOT NULL,
   received_unit_cost NUMERIC(10,4),
   received_at TIMESTAMP DEFAULT NOW() NOT NULL,
@@ -17,11 +17,11 @@ CREATE TABLE IF NOT EXISTS purchase_order_receiving (
 
 -- Production Batches Table
 -- Tracks production batch operations for recipes and prep tasks
-CREATE TABLE IF NOT EXISTS production_batches (
+CREATE TABLE IF NOT EXISTS public.production_batches (
   id SERIAL PRIMARY KEY,
-  venue_id INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-  recipe_id INTEGER REFERENCES recipes(id) ON DELETE SET NULL,
-  prep_task_id INTEGER REFERENCES prep_tasks(id) ON DELETE SET NULL,
+  venue_id INTEGER NOT NULL REFERENCES public.venues(id) ON DELETE CASCADE,
+  recipe_id INTEGER REFERENCES public.recipes(id) ON DELETE SET NULL,
+  prep_task_id INTEGER REFERENCES public.prep_tasks(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'in_progress',
   planned_portions NUMERIC(10,3),
   actual_portions NUMERIC(10,3),
@@ -35,10 +35,10 @@ CREATE TABLE IF NOT EXISTS production_batches (
 
 -- Production Batch Inputs Table
 -- Tracks ingredients consumed during production (PRODUCTION_INPUT transactions)
-CREATE TABLE IF NOT EXISTS production_batch_inputs (
+CREATE TABLE IF NOT EXISTS public.production_batch_inputs (
   id SERIAL PRIMARY KEY,
-  batch_id INTEGER NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
-  inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  batch_id INTEGER NOT NULL REFERENCES public.production_batches(id) ON DELETE CASCADE,
+  inventory_item_id INTEGER NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
   planned_quantity NUMERIC(10,3) NOT NULL,
   actual_quantity NUMERIC(10,3),
   unit_cost NUMERIC(10,4),
@@ -47,22 +47,23 @@ CREATE TABLE IF NOT EXISTS production_batch_inputs (
 
 -- Production Batch Outputs Table
 -- Tracks items produced during production (PRODUCTION_OUTPUT transactions)
-CREATE TABLE IF NOT EXISTS production_batch_outputs (
+CREATE TABLE IF NOT EXISTS public.production_batch_outputs (
   id SERIAL PRIMARY KEY,
-  batch_id INTEGER NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
-  inventory_item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  batch_id INTEGER NOT NULL REFERENCES public.production_batches(id) ON DELETE CASCADE,
+  inventory_item_id INTEGER NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
   quantity_produced NUMERIC(10,3) NOT NULL,
   unit_cost NUMERIC(10,4),
-  layer_id INTEGER,
+  layer_id INTEGER REFERENCES public.inventory_layers(id) ON DELETE SET NULL,
   produced_at TIMESTAMP DEFAULT NOW() NOT NULL
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_purchase_order_receiving_item_id ON purchase_order_receiving(purchase_order_item_id);
-CREATE INDEX IF NOT EXISTS idx_production_batches_venue_id ON production_batches(venue_id);
-CREATE INDEX IF NOT EXISTS idx_production_batches_recipe_id ON production_batches(recipe_id);
-CREATE INDEX IF NOT EXISTS idx_production_batches_prep_task_id ON production_batches(prep_task_id);
-CREATE INDEX IF NOT EXISTS idx_production_batch_inputs_batch_id ON production_batch_inputs(batch_id);
-CREATE INDEX IF NOT EXISTS idx_production_batch_inputs_inventory_item_id ON production_batch_inputs(inventory_item_id);
-CREATE INDEX IF NOT EXISTS idx_production_batch_outputs_batch_id ON production_batch_outputs(batch_id);
-CREATE INDEX IF NOT EXISTS idx_production_batch_outputs_inventory_item_id ON production_batch_outputs(inventory_item_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_receiving_item_id ON public.purchase_order_receiving(purchase_order_item_id);
+CREATE INDEX IF NOT EXISTS idx_production_batches_venue_id ON public.production_batches(venue_id);
+CREATE INDEX IF NOT EXISTS idx_production_batches_venue_status ON public.production_batches(venue_id, status);
+CREATE INDEX IF NOT EXISTS idx_production_batches_recipe_id ON public.production_batches(recipe_id);
+CREATE INDEX IF NOT EXISTS idx_production_batches_prep_task_id ON public.production_batches(prep_task_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_inputs_batch_id ON public.production_batch_inputs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_inputs_inventory_item_id ON public.production_batch_inputs(inventory_item_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_outputs_batch_id ON public.production_batch_outputs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_outputs_inventory_item_id ON public.production_batch_outputs(inventory_item_id);

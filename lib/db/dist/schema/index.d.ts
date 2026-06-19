@@ -19,4 +19,5 @@ export * from "./dataRetention";
 export * from "./userProfiles";
 export * from "./handoverNotes";
 export * from "./purchaseOrders";
+export * from "./production";
 //# sourceMappingURL=index.d.ts.map
