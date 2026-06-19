@@ -1,5 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { pool } from "@workspace/db";
+import { validateDbSchema } from "./lib/schemaValidation";
 
 const rawPort = process.env["PORT"];
 
@@ -13,6 +15,13 @@ const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+try {
+  await validateDbSchema(pool);
+} catch (err) {
+  logger.error({ err }, "FATAL: database schema validation failed — apply pending migrations and restart");
+  process.exit(1);
 }
 
 app.listen(port, (err) => {
