@@ -8,15 +8,16 @@ import {
 
 export type InventoryTransactionType =
   | "PURCHASE"
+  | "PURCHASE_RECEIPT"
   | "PRODUCTION_INPUT"
   | "PRODUCTION_OUTPUT"
   | "SALE"
   | "WASTE"
   | "STOCKTAKE";
 
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-type InventoryMovementInput = {
+export type InventoryMovementInput = {
   venueId: number;
   inventoryItemId: number;
   transactionType: InventoryTransactionType;
@@ -34,7 +35,7 @@ type InventoryMovementInput = {
   updateAverageCost?: boolean;
 };
 
-type InventoryMovementResult = {
+export type InventoryMovementResult = {
   item: typeof inventoryItemsTable.$inferSelect;
   entry: typeof inventoryLedgerEntriesTable.$inferSelect;
 };
@@ -92,7 +93,7 @@ async function consumeInventoryLayers(
   return consumed;
 }
 
-async function applyInventoryMovementInTx(
+export async function applyInventoryMovementInTx(
   tx: DbTransaction,
   input: InventoryMovementInput,
 ): Promise<InventoryMovementResult> {
@@ -200,15 +201,20 @@ export async function applyInventoryMovement(input: InventoryMovementInput): Pro
   return db.transaction(async (tx) => applyInventoryMovementInTx(tx, input));
 }
 
+export async function applyInventoryMovementsInTx(
+  tx: DbTransaction,
+  inputs: InventoryMovementInput[],
+): Promise<InventoryMovementResult[]> {
+  const results: InventoryMovementResult[] = [];
+  for (const input of inputs) {
+    results.push(await applyInventoryMovementInTx(tx, input));
+  }
+  return results;
+}
+
 export async function applyInventoryMovements(inputs: InventoryMovementInput[]): Promise<InventoryMovementResult[]> {
   if (inputs.length === 0) return [];
-  return db.transaction(async (tx) => {
-    const results: InventoryMovementResult[] = [];
-    for (const input of inputs) {
-      results.push(await applyInventoryMovementInTx(tx, input));
-    }
-    return results;
-  });
+  return db.transaction(async (tx) => applyInventoryMovementsInTx(tx, inputs));
 }
 
 export async function reconcileInventoryStock(input: Omit<InventoryMovementInput, "quantityDelta" | "transactionType"> & {

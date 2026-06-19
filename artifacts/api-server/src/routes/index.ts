@@ -43,6 +43,7 @@ import starterPackRouter from "./starterPack";
 import setupProgressRouter from "./setupProgress";
 import handoverNotesRouter from "./handoverNotes";
 import purchaseOrdersRouter from "./purchaseOrders";
+import productionBatchesRouter from "./productionBatches";
 
 // ── Demo user cache ────────────────────────────────────────────────────────────
 // Caches the Clerk user ID of The Black Apron venue owner to avoid a DB lookup
@@ -137,5 +138,6 @@ router.use(starterPackRouter);
 router.use(setupProgressRouter);
 router.use(handoverNotesRouter);
 router.use(purchaseOrdersRouter);
+router.use(productionBatchesRouter);
 
 export default router;

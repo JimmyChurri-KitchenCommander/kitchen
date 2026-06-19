@@ -8,6 +8,8 @@ import {
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
+import { receivePurchaseOrder } from "../services/purchaseOrderReceiving";
+import { isServiceError } from "../services/errors";
 
 const router = Router();
 
@@ -54,6 +56,52 @@ router.get("/venues/:venueId/purchase-orders/:orderId", requireAuth, async (req,
     res.json({ ...order, items });
   } catch (err) {
     req.log.error({ err }, "Failed to get purchase order");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Receive purchase order items ───────────────────────────────────────────────
+router.post("/venues/:venueId/purchase-orders/:orderId/receive", requireAuth, async (req, res): Promise<void> => {
+  const venueId = parseId(req.params["venueId"] as string);
+  const orderId = parseId(req.params["orderId"] as string);
+  if (!venueId || !orderId) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  try {
+    const { items } = req.body as {
+      items?: Array<{
+        purchaseOrderItemId?: number;
+        quantityReceived?: number;
+        receivedUnitCost?: number;
+        notes?: string;
+        expiryDate?: string;
+      }>;
+    };
+
+    if (!items || items.length === 0) {
+      res.status(400).json({ error: "At least one item is required" });
+      return;
+    }
+
+    const result = await receivePurchaseOrder({
+      venueId,
+      orderId,
+      items: items.map((item) => ({
+        purchaseOrderItemId: item.purchaseOrderItemId ?? 0,
+        quantityReceived: item.quantityReceived ?? 0,
+        receivedUnitCost: item.receivedUnitCost,
+        notes: item.notes,
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+      })),
+      receivedBy: req.userId ?? undefined,
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (isServiceError(err)) {
+      res.status(err.statusCode).json({ error: err.message, code: err.code });
+      return;
+    }
+    req.log.error({ err }, "Failed to receive purchase order");
     res.status(500).json({ error: "Internal server error" });
   }
 });
